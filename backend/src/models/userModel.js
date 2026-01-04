@@ -5,3 +5,5 @@ class UserModel{
         db = DB_Connection.getInstance();
     }
 }
+
+module.exports = UserModel;
