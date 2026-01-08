@@ -10,12 +10,12 @@ class BankAccountModel {
         return this.db.run(
             'Create Bank Account',
             async () => {
-                const {id, account_number, account_type, balance, status} = payload ;
+                const {account_number, account_type, balance, status} = payload ;
                 
-                const query = `INSERT INTO bank_accounts (id, account_number, account_type, balance, status)
-                                VALUES ($1, $2, $3, $4, $5)
+                const query = `INSERT INTO bank_accounts (account_number, account_type, balance, status)
+                                VALUES ($1, $2, $3, $4)
                                 RETURNING *;`;
-                const params = [id, account_number, account_type, balance, status];
+                const params = [account_number, account_type, balance, status];
                 const res = await this.db.query_executor(query, params);
                 return res.rows[0];
             }

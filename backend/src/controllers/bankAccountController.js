@@ -11,15 +11,15 @@ class BankAccountController{
         return runWithLogging(
             'Create bank account from controller',
             async ()=>{
-                const {id, account_number, account_type, balance, status} = req.body ;
-                if(!id || !account_number){
+                const {account_number, account_type, balance, status} = req.body ;
+                if(!account_number){
                     return res.status(400).json({
                         success: false,
-                        message: 'id or bank_account_number not found'
+                        message: 'bank_account_number not found'
                     });
                 }
 
-                const payload = {id, account_number, account_type, balance, status};
+                const payload = {account_number, account_type, balance, status};
                 const newAccount = await this.model.createAccount(payload) ;
                 if(! newAccount){
                     return res.status(500).json({
@@ -30,7 +30,8 @@ class BankAccountController{
 
                 return res.status(201).json({
                         success: true,
-                        message: 'Account created !'
+                        message: 'Account created !',
+                        data : newAccount
                     });
                 
             }
