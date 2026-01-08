@@ -15,8 +15,12 @@ app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, ()=>{
-	console.log(`Server running on port ${PORT}`);
+app.listen(PORT, (req, res)=>{
+	console.log(`Server running on port http://localhost:3000`);
+});
+
+app.get('/', (req, res)=>{
+	res.send('University backend running.');
 })
 
 
