@@ -2,6 +2,7 @@ const dotenv = require('dotenv');
 const pkg = require('pg');
 const {Pool} = pkg;
 const path = require('path');
+const { runWithLogging } = require('../utils/runWithLogging.js');
 
 //dotenv.config({path: path.resolve(__dirname, '../../.env')});
 
@@ -49,6 +50,10 @@ class DB_Connection{
         } finally{
             client.release();
         }
+    }
+
+    run = async (actionName, fn)=>{
+        return runWithLogging(`DB:${actionName}`, fn);
     }
 }
 
