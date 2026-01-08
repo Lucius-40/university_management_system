@@ -40,6 +40,33 @@ class BankAccountModel {
             }
         )
     }
+
+    deleteBankAccount = (id)=>{
+        return this.db.run(
+            'Delete Bank Account by Id',
+            async ()=>{
+                const query = `DELETE FROM bank_accounts WHERE id=$1 RETURNING *;`;
+                const params = [id];
+                const res =  await this.db.query_executor(query, params);
+                return res.rows[0];
+            }
+        )
+    }
+
+    getAccountById= (id)=>{
+        return this.db.run(
+            'Get User by id',
+            async ()=>{
+                const query = `SELECT * FROM bank_accounts WHERE id=$1;`;
+                const params = [id];
+                const res =  await this.db.query_executor(query, params);
+                return res.rows[0];
+            }
+
+        )
+    }
+
+
 }
 
 module.exports = BankAccountModel;
