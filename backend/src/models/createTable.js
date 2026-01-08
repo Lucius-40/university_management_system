@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS users (
     passport_number VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    refresh_token TEXT,
     CONSTRAINT payment_info_check CHECK (mobile_banking_number IS NOT NULL OR bank_account_number IS NOT NULL),
     CONSTRAINT citizenship_info_check CHECK (nid_number IS NOT NULL OR passport_number IS NOT NULL)
 );
@@ -162,7 +163,7 @@ CREATE TABLE IF NOT EXISTS courses (
 -- Teachers table inherits ID from Users (1:1 relationship)
 CREATE TABLE IF NOT EXISTS teachers (
     id INTEGER PRIMARY KEY, -- Primary Key is also Foreign Key to users
-    employee_id INTEGER NOT NULL UNIQUE,
+    employee_id VARCHAR(10) NOT NULL UNIQUE,
     department_id INTEGER,
     appointment teacher_appointment_type NOT NULL,
     official_mail VARCHAR(100) NOT NULL UNIQUE,
@@ -649,12 +650,13 @@ class CreateTables {
         this.db_connection = DB_Connection.getInstance();
     }
     
-    createTable = async()=>{
+    CreateTables = async()=>{
         try{
-            const res = this.db_connection.query_executor(query);
-            console.log(res);
+            const res = await this.db_connection.query_executor(query);
+            return res;
         }catch(err){
             console.error(err);
+            throw err;
         }
     }
 
