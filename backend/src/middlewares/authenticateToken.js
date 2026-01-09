@@ -10,6 +10,12 @@ class AuthenticateToken{
         try {
             console.log("Authenticating users"); //TODO: Need to remove in production
 
+            // Check if BYPASS mode is enabled
+            if(process.env.BYPASS === 'true'){
+                console.log("BYPASS mode enabled - skipping authentication");
+                return next();
+            }
+
             const authHeader = req.headers['authorization'] || req.headers['Authorization'];
             const token = authHeader && authHeader.split(' ')[1];
             

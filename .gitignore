@@ -419,3 +419,5 @@ FodyWeavers.xsd
 
 # Backend environment file
 backend/.env
+BankAccount_API.postman_collection.json
+Building_API.postman_collection.json
