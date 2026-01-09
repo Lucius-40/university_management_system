@@ -7,6 +7,7 @@ const authRouter = require('./routes/authRoutes.js')
 const userRouter = require('./routes/userRoutes.js')
 const bankAccountRouter = require('./routes/bankAccountRoutes.js')
 const buildingRouter = require('./routes/buildingRoutes.js');
+const tendersRouter = require('./routes/tendersRoutes.js');
 
 dotenv.config({path: path.resolve(__dirname, '../.env')});
 const app = express();
@@ -17,6 +18,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/bank-accounts', bankAccountRouter);
 app.use('/api/buildings', buildingRouter);
+app.use('/api/tenders', tendersRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, (req, res)=>{
