@@ -13,6 +13,7 @@ const bankAccountRouter = require('./routes/bankAccountRoutes.js')
 const buildingRouter = require('./routes/buildingRoutes.js');
 const tendersRouter = require('./routes/tendersRoutes.js');
 const departmentRouter = require('./routes/departmentRoutes.js');
+const scholarshipRouter = require('./routes/scholarshipRoutes.js');
 
 const app = express();
 app.use(express.json());
@@ -24,6 +25,7 @@ app.use('/api/bank-accounts', bankAccountRouter);
 app.use('/api/buildings', buildingRouter);
 app.use('/api/tenders', tendersRouter);
 app.use('/api/departments', departmentRouter);
+app.use('/api/scholarships', scholarshipRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, (req, res)=>{
