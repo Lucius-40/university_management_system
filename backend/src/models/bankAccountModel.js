@@ -12,8 +12,9 @@ class BankAccountModel {
             async () => {
                 const {account_number, account_type, balance, status} = payload ;
                 
-                const query = `INSERT INTO bank_accounts (account_number, account_type, balance, status)
-                                VALUES ($1, $2, $3, $4)
+                const query = `INSERT INTO bank_accounts
+                                    (account_number, account_type, balance, status)
+                                    VALUES ($1, $2, $3, $4)
                                 RETURNING *;`;
                 const params = [account_number, account_type, balance, status];
                 const res = await this.db.query_executor(query, params);

@@ -17,8 +17,12 @@ app.use('/api/users', userRouter);
 app.use('/api/bank-accounts', bankAccountRouter);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, ()=>{
-	console.log(`Server running on port ${PORT}`);
+app.listen(PORT, (req, res)=>{
+	console.log(`Server running on port http://localhost:3000`);
+});
+
+app.get('/', (req, res)=>{
+	res.send('University backend running.');
 })
 //console.log('Loaded DB_HOST from .env:', process.env.DATABASE_URL);
 

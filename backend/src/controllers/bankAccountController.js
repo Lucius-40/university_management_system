@@ -24,7 +24,7 @@ class BankAccountController{
                 if(! newAccount){
                     return res.status(500).json({
                         success: false,
-                        message: 'failed t create account'
+                        message: 'failed to create account'
                     });
                 }
 
