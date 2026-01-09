@@ -55,7 +55,7 @@ class BankAccountModel {
 
     getAccountById= (id)=>{
         return this.db.run(
-            'Get User by id',
+            'Get Account by id',
             async ()=>{
                 const query = `SELECT * FROM bank_accounts WHERE id=$1;`;
                 const params = [id];
