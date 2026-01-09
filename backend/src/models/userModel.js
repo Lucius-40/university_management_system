@@ -319,6 +319,76 @@ class UserModel{
             }
         )
     }
+//     CREATE TABLE IF NOT EXISTS emergency_contacts (
+//     id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+//     user_id INTEGER NOT NULL,
+//     name VARCHAR(100) NOT NULL,
+//     relation VARCHAR(50) NOT NULL,
+//     mobile_number VARCHAR(15) NOT NULL,
+//     address TEXT NOT NULL,
+//     CONSTRAINT fk_emergency_contacts_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+// );
+
+    createEmergencyContact = (payload)=>{
+        return this.db.run(
+            'Create Emergency cnt',
+            async () => {
+                const {user_id, name, relation, mobile_number, address} = payload ;
+                
+                const query = `INSERT INTO emergency_contacts (user_id, name, relation, mobile_number, address)
+                                VALUES ($1, $2, $3, $4, $5)
+                                RETURNING *;`;
+                const params = [user_id, name, relation, mobile_number, address];
+                const res = await this.db.query_executor(query, params);
+                return res.rows[0];
+            }
+        );
+    }
+
+    updateEmergencyContact = (payload)=>{
+        return this.db.run(
+            'Update Emergency contact info',
+            async()=>{
+                const {id,user_id, name, relation, mobile_number, address} = payload ;
+                const query = `UPDATE emergency_contacts
+                                SET user_id =$2,
+                                relation =$4,
+                                name=$3,
+                                mobile_number=$5,
+                                address =$6
+                                WHERE id=$1
+                                RETURNING *;`;
+                const params = [id,user_id, name, relation, mobile_number, address];
+                const res = await this.db.query_executor(query, params);
+                return res.rows[0];
+            }
+        )
+    }
+
+    deleteEmergencyContact = (id)=>{
+        return this.db.run(
+            'Delete Emergency cnt by Id',
+            async ()=>{
+                const query = `DELETE FROM emergency_contacts WHERE id=$1 RETURNING *;`;
+                const params = [id];
+                const res =  await this.db.query_executor(query, params);
+                return res.rows[0];
+            }
+        )
+    }
+
+    getEmergencyContactById= (id)=>{
+        return this.db.run(
+            'Get Emergency cnt ny id',
+            async ()=>{
+                const query = `SELECT * FROM emergency_contacts WHERE id=$1;`;
+                const params = [id];
+                const res =  await this.db.query_executor(query, params);
+                return res.rows[0];
+            }
+
+        )
+    }
 }
 
 module.exports = UserModel;

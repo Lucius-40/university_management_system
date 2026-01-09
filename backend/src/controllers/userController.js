@@ -236,6 +236,141 @@ class UserController{
             }
         )
     }
+
+    createEmergencyContact = (req, res)=>{
+        return runWithLogging(
+            'create_emergency_contact',
+            async()=>{
+                const {user_id, name, relation, mobile_number, address} = req.body;
+
+                if(!user_id || !name || !relation || !mobile_number || !address){
+                    return res.status(400).json({
+                        success: false,
+                        message: 'user_id, name, relation, mobile_number and address are required'
+                    });
+                }
+
+                const emergencyContact = await this.model.createEmergencyContact({
+                    user_id, name, relation, mobile_number, address
+                });
+
+                if(!emergencyContact){
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to create emergency contact'
+                    });
+                }
+
+                return res.status(201).json({
+                    success: true,
+                    message: 'Emergency contact created successfully',
+                    emergencyContact: emergencyContact
+                });
+            }
+        )
+    }
+
+    updateEmergencyContact = (req, res)=>{
+        return runWithLogging(
+            'update_emergency_contact',
+            async()=>{
+                const {id} = req.params;
+                const {user_id, name, relation, mobile_number, address} = req.body;
+
+                if(!id){
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Emergency contact ID is required'
+                    });
+                }
+
+                if(!user_id || !name || !relation || !mobile_number || !address){
+                    return res.status(400).json({
+                        success: false,
+                        message: 'user_id, name, relation, mobile_number and address are required'
+                    });
+                }
+
+                const updatedContact = await this.model.updateEmergencyContact({
+                    id, user_id, name, relation, mobile_number, address
+                });
+
+                if(!updatedContact){
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Emergency contact not found or failed to update'
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    message: 'Emergency contact updated successfully',
+                    emergencyContact: updatedContact
+                });
+            }
+        )
+    }
+
+    deleteEmergencyContact = (req, res)=>{
+        return runWithLogging(
+            'delete_emergency_contact',
+            async()=>{
+                const {id} = req.params;
+
+                if(!id){
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Emergency contact ID is required'
+                    });
+                }
+
+                const deletedContact = await this.model.deleteEmergencyContact(id);
+
+                if(!deletedContact){
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Emergency contact not found'
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    message: 'Emergency contact deleted successfully',
+                    emergencyContact: deletedContact
+                });
+            }
+        )
+    }
+
+    getEmergencyContactById = (req, res)=>{
+        return runWithLogging(
+            'get_emergency_contact_by_id',
+            async()=>{
+                const {id} = req.params;
+
+                if(!id){
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Emergency contact ID is required'
+                    });
+                }
+
+                const emergencyContact = await this.model.getEmergencyContactById(id);
+
+                if(!emergencyContact){
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Emergency contact not found'
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    emergencyContact: emergencyContact
+                });
+            }
+        )
+    }
     
 }
 
