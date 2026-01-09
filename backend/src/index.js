@@ -3,12 +3,15 @@ const dotenv = require('dotenv');
 const path = require('path');
 const cors = require('cors');
 
+dotenv.config({path: path.resolve(__dirname, './.env')});
+// console.log(process.env.DATABASE_URL);
+
+
 const authRouter = require('./routes/authRoutes.js')
 const userRouter = require('./routes/userRoutes.js')
 const bankAccountRouter = require('./routes/bankAccountRoutes.js')
 const buildingRouter = require('./routes/buildingRoutes.js');
 
-dotenv.config({path: path.resolve(__dirname, '../.env')});
 const app = express();
 app.use(express.json());
 app.use(cors());

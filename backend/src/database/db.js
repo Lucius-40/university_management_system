@@ -4,7 +4,7 @@ const {Pool} = pkg;
 const path = require('path');
 const { runWithLogging } = require('../utils/runWithLogging.js');
 
-dotenv.config({path: path.resolve(__dirname, '../../.env')});
+// dotenv.config({path: path.resolve(__dirname, '../../.env')});
 
 class DB_Connection{
     static #instance;
