@@ -8,6 +8,7 @@ const userRouter = require('./routes/userRoutes.js')
 const bankAccountRouter = require('./routes/bankAccountRoutes.js')
 const buildingRouter = require('./routes/buildingRoutes.js');
 const tendersRouter = require('./routes/tendersRoutes.js');
+const departmentRouter = require('./routes/departmentRoutes.js');
 
 dotenv.config({path: path.resolve(__dirname, '../.env')});
 const app = express();
@@ -19,6 +20,7 @@ app.use('/api/users', userRouter);
 app.use('/api/bank-accounts', bankAccountRouter);
 app.use('/api/buildings', buildingRouter);
 app.use('/api/tenders', tendersRouter);
+app.use('/api/departments', departmentRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, (req, res)=>{

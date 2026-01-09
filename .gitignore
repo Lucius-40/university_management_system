@@ -419,6 +419,5 @@ FodyWeavers.xsd
 
 # Backend environment file
 backend/.env
-BankAccount_API.postman_collection.json
-Building_API.postman_collection.json
-Tenders_API.postman_collection.json
+# Ignore all Postman collections
+postman/
