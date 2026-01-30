@@ -31,6 +31,7 @@ class AuthenticateToken{
             console.log("Verifying token"); //TODO: Remove in production
 
             const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+            req.auth = decoded;
 
             const userId = decoded.sub || decoded.id;
             const user = await this.userModel.getUserById(userId);
@@ -43,6 +44,9 @@ class AuthenticateToken{
             }
 
             req.user = user;
+            if(req.user && !req.user.role && decoded && decoded.role){
+                req.user.role = decoded.role;
+            }
             next();
         } catch (error) {
             console.error('Token verification error:', error.message);

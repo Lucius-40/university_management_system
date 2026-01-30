@@ -14,6 +14,9 @@ const buildingRouter = require('./routes/buildingRoutes.js');
 const tendersRouter = require('./routes/tendersRoutes.js');
 const departmentRouter = require('./routes/departmentRoutes.js');
 const scholarshipRouter = require('./routes/scholarshipRoutes.js');
+const hallRouter = require('./routes/hallRoutes.js');
+const termRouter = require('./routes/termRoutes.js');
+const sectionRouter = require('./routes/sectionRoutes.js');
 
 const app = express();
 app.use(express.json());
@@ -26,6 +29,9 @@ app.use('/api/buildings', buildingRouter);
 app.use('/api/tenders', tendersRouter);
 app.use('/api/departments', departmentRouter);
 app.use('/api/scholarships', scholarshipRouter);
+app.use('/api/halls', hallRouter);
+app.use('/api/terms', termRouter);
+app.use('/api/sections', sectionRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, (req, res)=>{
