@@ -319,15 +319,7 @@ class UserModel{
             }
         )
     }
-//     CREATE TABLE IF NOT EXISTS emergency_contacts (
-//     id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-//     user_id INTEGER NOT NULL,
-//     name VARCHAR(100) NOT NULL,
-//     relation VARCHAR(50) NOT NULL,
-//     mobile_number VARCHAR(15) NOT NULL,
-//     address TEXT NOT NULL,
-//     CONSTRAINT fk_emergency_contacts_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-// );
+
 
     createEmergencyContact = (payload)=>{
         return this.db.run(
