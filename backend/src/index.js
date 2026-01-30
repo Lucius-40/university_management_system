@@ -4,44 +4,30 @@ const path = require('path');
 const cors = require('cors');
 
 dotenv.config({path: path.resolve(__dirname, './.env')});
-// console.log(process.env.DATABASE_URL);
-
-
-const authRouter = require('./routes/authRoutes.js')
-const userRouter = require('./routes/userRoutes.js')
-const bankAccountRouter = require('./routes/bankAccountRoutes.js')
-const buildingRouter = require('./routes/buildingRoutes.js');
-const tendersRouter = require('./routes/tendersRoutes.js');
-const departmentRouter = require('./routes/departmentRoutes.js');
-const scholarshipRouter = require('./routes/scholarshipRoutes.js');
-const hallRouter = require('./routes/hallRoutes.js');
-const termRouter = require('./routes/termRoutes.js');
-const sectionRouter = require('./routes/sectionRoutes.js');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-app.use('/api/auth', authRouter);
-app.use('/api/users', userRouter);
-app.use('/api/bank-accounts', bankAccountRouter);
-app.use('/api/buildings', buildingRouter);
-app.use('/api/tenders', tendersRouter);
-app.use('/api/departments', departmentRouter);
-app.use('/api/scholarships', scholarshipRouter);
-app.use('/api/halls', hallRouter);
-app.use('/api/terms', termRouter);
-app.use('/api/sections', sectionRouter);
+// app.get('/', (req, res) => {
+//     res.send('University backend running.');
+// });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, (req, res)=>{
-	console.log(`Server running on port http://localhost:3000`);
+app.listen(PORT, () => {
+    console.log(`Server running on port http://localhost:${PORT}`);
 });
 
-app.get('/', (req, res)=>{
-	res.send('University backend running.');
-})
-//console.log('Loaded DB_HOST from .env:', process.env.DATABASE_URL);
+// Test DB connection after server starts
+const tableModel = require('./models/tableModels');
+(async () => {
+    try {
+        await tableModel.testConnection();
+        console.log('Database connection successful');
+    } catch (error) {
+        console.error('Database connection failed:', error);
+    }
+})();
 
 
 

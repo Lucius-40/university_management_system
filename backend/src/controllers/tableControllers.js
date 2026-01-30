@@ -16,4 +16,6 @@ const initializeDatabase = async (req, res) => {
     }
 };
 
+
+
 module.exports = { initializeDatabase };

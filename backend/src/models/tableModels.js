@@ -166,6 +166,17 @@ class TableModel {
             }
         );
     }
+
+    testConnection = async (req, res)=>{
+        const query =' SELECT 1 ;'
+        return await runWithLogging(
+            'DB connection test',
+            async()=>{
+                const result = await this.db.query_executor(query);
+                return result ;
+            }
+        )
+    }
 }
 
 module.exports = new TableModel();

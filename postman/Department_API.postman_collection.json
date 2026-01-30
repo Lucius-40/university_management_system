@@ -1,0 +1,154 @@
+{
+    "info": {
+        "_postman_id": "department-api-collection",
+        "name": "Department API",
+        "description": "Collection for testing department endpoints in the university management system",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Create Department",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"building_id\": 1,\n    \"bank_account_id\": 1,\n    \"name\": \"Computer Science\"\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/departments/create",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "departments",
+                        "create"
+                    ]
+                },
+                "description": "Creates a new department"
+            },
+            "response": []
+        },
+        {
+            "name": "Get Department by ID",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/departments/get-department/:id",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "departments",
+                        "get-department",
+                        ":id"
+                    ],
+                    "variable": [
+                        {
+                            "key": "id",
+                            "value": "1",
+                            "description": "Department ID"
+                        }
+                    ]
+                },
+                "description": "Retrieves a department by its ID"
+            },
+            "response": []
+        },
+        {
+            "name": "Update Department",
+            "request": {
+                "method": "PATCH",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"id\": 1,\n    \"building_id\": 2,\n    \"bank_account_id\": 2,\n    \"name\": \"Mathematics\"\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/departments/update",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "departments",
+                        "update"
+                    ]
+                },
+                "description": "Updates an existing department"
+            },
+            "response": []
+        },
+        {
+            "name": "Delete Department",
+            "request": {
+                "method": "DELETE",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/departments/delete-department/:id",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "departments",
+                        "delete-department",
+                        ":id"
+                    ],
+                    "variable": [
+                        {
+                            "key": "id",
+                            "value": "1",
+                            "description": "Department ID to delete"
+                        }
+                    ]
+                },
+                "description": "Deletes a department by its ID"
+            },
+            "response": []
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:3000",
+            "type": "string"
+        },
+        {
+            "key": "token",
+            "value": "",
+            "type": "string"
+        }
+    ]
+}

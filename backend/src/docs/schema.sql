@@ -16,14 +16,16 @@ CREATE TABLE users (
     mobile_banking_number VARCHAR(20),
     bank_account_number VARCHAR(50),
     permanent_address TEXT,
-    present_address TEXT,
-    birth_reg_number VARCHAR(50),
+    present_address TEXT NOT NULL,
+    birth_reg_number VARCHAR(50) NOT NULL,
     nid_number VARCHAR(50),
     passport_number VARCHAR(50),
-    birth_date DATE,
+    birth_date DATE NOT NULL,
     emergency_contact_name VARCHAR(255),
-    emergency_contact_number VARCHAR(20),
-    emergency_contact_relation VARCHAR(50)
+    emergency_contact_number VARCHAR(20) NOT NULL,
+    emergency_contact_relation VARCHAR(50),
+    CONSTRAINT payment_constraint CHECK (bank_account_number IS NOT NULL OR mobile_banking_number IS NOT NULL),
+    CONSTRAINT identification_constraint CHECK (passport_number IS NOT NULL OR nid_number IS NOT NULL)
 );
 
 CREATE TABLE departments (
