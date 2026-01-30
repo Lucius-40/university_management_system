@@ -22,8 +22,8 @@ app.listen(PORT, () => {
 const tableModel = require('./models/tableModels');
 (async () => {
     try {
-        await tableModel.testConnection();
-        console.log('Database connection successful');
+        const res = await tableModel.testConnection();
+        console.log(res);
     } catch (error) {
         console.error('Database connection failed:', error);
     }
