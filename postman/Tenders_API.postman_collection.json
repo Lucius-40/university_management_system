@@ -1,0 +1,158 @@
+{
+    "info": {
+        "_postman_id": "tenders-api-collection",
+        "name": "Tenders API",
+        "description": "Collection for testing tender endpoints in the university management system",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Create Tender",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"tender_name\": \"Construction Project\",\n    \"contractor\": \"ABC Construction Ltd\",\n    \"contract_value\": 500000.00,\n    \"reference\": \"TEND-2026-001\",\n    \"leader_name\": \"John Smith\",\n    \"start_date\": \"2026-02-01\",\n    \"end_date\": \"2026-12-31\",\n    \"status\": \"active\"\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/tenders/create",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "tenders",
+                        "create"
+                    ]
+                },
+                "description": "Creates a new tender with name, contractor, contract value, reference, leader name, dates, and status"
+            },
+            "response": []
+        },
+        {
+            "name": "Get Tender by ID",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/tenders/get-tender/:id",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "tenders",
+                        "get-tender",
+                        ":id"
+                    ],
+                    "variable": [
+                        {
+                            "key": "id",
+                            "value": "1",
+                            "description": "Tender ID"
+                        }
+                    ]
+                },
+                "description": "Retrieves a tender by its ID"
+            },
+            "response": []
+        },
+        {
+            "name": "Update Tender",
+            "request": {
+                "method": "PATCH",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"id\": 1,\n    \"tender_name\": \"Construction Project Phase 2\",\n    \"contractor\": \"ABC Construction Ltd\",\n    \"contract_value\": 600000.00,\n    \"reference\": \"TEND-2026-001\",\n    \"leader_name\": \"Jane Doe\",\n    \"start_date\": \"2026-02-01\",\n    \"end_date\": \"2027-01-31\",\n    \"status\": \"in-progress\"\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/tenders/update",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "tenders",
+                        "update"
+                    ]
+                },
+                "description": "Updates an existing tender with new details"
+            },
+            "response": []
+        },
+        {
+            "name": "Delete Tender",
+            "request": {
+                "method": "DELETE",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "description": "JWT token for authentication"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/tenders/delete-tender/:id",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "tenders",
+                        "delete-tender",
+                        ":id"
+                    ],
+                    "variable": [
+                        {
+                            "key": "id",
+                            "value": "1",
+                            "description": "Tender ID to delete"
+                        }
+                    ]
+                },
+                "description": "Deletes a tender by its ID"
+            },
+            "response": []
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:3000",
+            "type": "string"
+        },
+        {
+            "key": "token",
+            "value": "",
+            "type": "string"
+        }
+    ]
+}
