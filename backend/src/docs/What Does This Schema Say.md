@@ -121,10 +121,10 @@
 
 ## 5. Feedback
 
-### **Q: "What is the average rating of a specific teacher/course?"**
-*   **Tables:** `feedback` JOIN `courses` JOIN `teachers`
+### **Q: "What is the average rating of a specific teacher/course offering?"**
+*   **Tables:** `feedback` JOIN `course_offerings` JOIN `courses` JOIN `teachers`
 *   **Complexity:** $O(\log N_{feedback})$
-    *   Assuming an index on `course_id` or `teacher_id` in the `feedback` table.
+    *   Assuming an index on `course_offering_id` or `teacher_id` in the `feedback` table.
 
 ---
 
