@@ -10,17 +10,17 @@ class UserModel{
             'create_user', 
             async()=>{
                 const {
-                    name, mobile_number, email, password_hash, mobile_banking_number = null, bank_acc_number = null, present_address = null, permanent_address = null, birth_reg_num = null, dob = null, nid_number = null, passport_num = null, role
+                    name, mobile_number, email, password_hash, role, mobile_banking_number = null, bank_account_number = null, present_address = null, permanent_address = null, birth_reg_number = null, birth_date = null, nid_number = null, passport_number = null, emergency_contact_name, emergency_contact_number, emergency_contact_relation
                 } = payload;
 
                 const query = `
                     INSERT INTO users
-                        (name, mobile_number, email, password_hash, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_registration_number, date_of_birth, nid_number, passport_number)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                        (name, mobile_number, email, password_hash, role, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                     RETURNING *;
                 `;
 
-                const params = [name, mobile_number, email, password_hash, mobile_banking_number, bank_acc_number, present_address, permanent_address, birth_reg_num, dob, nid_number, passport_num];
+                const params = [name, mobile_number, email, password_hash, role, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation];
 
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
@@ -35,42 +35,40 @@ class UserModel{
                 if(role == 'student'){
                     const {
                         userId,
-                        roll,
-                        term_id,
-                        section_id,
+                        roll_number,
+                        current_term,
                         department_id,
-                        hall_id
+                        official_mail,
+                        status
                     } = payload;
 
                     const query = `
                         INSERT INTO students
-                        (id, term_id, section_id, department_id, hall_id, roll)
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                        (user_id, roll_number, official_mail, status, current_term)
+                        VALUES ($1, $2, $3, $4, $5)
                         RETURNING *;
                     `;
 
-                    const params = [userId, term_id, section_id, department_id, hall_id, roll]
+                    const params = [userId, roll_number, official_mail, status, current_term]
 
                     const result = await this.db.query_executor(query, params);
                     return result.rows[0] || null;
                 } else if (role == 'teacher'){
                     const {
                         userId,
-                        employee_id,
                         department_id,
                         appointment,
-                        official_mail,
-                        security_clearance = 0
+                        official_mail
                     } = payload;
 
                     const query = `
                         INSERT INTO teachers
-                        (id, employee_id, department_id, appointment, official_mail, security_clearance)
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                        (user_id, department_id, appointment, official_mail)
+                        VALUES ($1, $2, $3, $4)
                         RETURNING *;
                     `;
 
-                    const params = [userId, employee_id, department_id, appointment, official_mail, security_clearance]
+                    const params = [userId, department_id, appointment, official_mail]
 
                     const result = await this.db.query_executor(query, params);
                     return result.rows[0] || null;
@@ -87,7 +85,7 @@ class UserModel{
             'update_user',
             async()=>{
                 const {
-                    id, name, mobile_number, email, mobile_banking_number = null, bank_acc_number = null, present_address = null, permanent_address = null, birth_reg_num = null, dob = null, nid_number = null, passport_num = null
+                    id, name, mobile_number, email, mobile_banking_number = null, bank_account_number = null, present_address = null, permanent_address = null, birth_reg_number = null, birth_date = null, nid_number = null, passport_number = null, emergency_contact_name, emergency_contact_number, emergency_contact_relation
                 } = payload;
 
                 const query = `
@@ -100,15 +98,18 @@ class UserModel{
                             bank_account_number=$6, 
                             present_address=$7, 
                             permanent_address=$8, 
-                            birth_registration_number=$9, 
-                            date_of_birth=$10, 
+                            birth_reg_number=$9, 
+                            birth_date=$10, 
                             nid_number=$11, 
-                            passport_number=$12
+                            passport_number=$12,
+                            emergency_contact_name=$13,
+                            emergency_contact_number=$14,
+                            emergency_contact_relation=$15
                         WHERE id = $1
                     RETURNING *;
                 `;
 
-                const params = [id, name, mobile_number, email, mobile_banking_number, bank_acc_number, present_address, permanent_address, birth_reg_num, dob, nid_number, passport_num];
+                const params = [id, name, mobile_number, email, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation];
 
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
@@ -201,27 +202,21 @@ class UserModel{
                         u.bank_account_number,
                         u.present_address,
                         u.permanent_address,
-                        u.birth_registration_number,
-                        u.date_of_birth,
+                        u.birth_reg_number,
+                        u.birth_date,
                         u.nid_number,
                         u.passport_number,
-                        s.roll,
+                        u.emergency_contact_name,
+                        u.emergency_contact_number,
+                        u.emergency_contact_relation,
+                        s.roll_number,
                         t.term_number,
-                        t.started_on,
-                        sec.id as section_id,
-                        sec.name as section_name,
-                        dept.id as department_id,
-                        dept.name as department_name,
-                        h.id as hall_id,
-                        h.name as hall_name,
+                        t.start_date as term_start_date,
                         s.status
                     FROM students s
-                    JOIN users as u ON u.id=s.id
-                    JOIN terms as t ON t.id=s.term_id
-                    JOIN sections as sec ON sec.id=s.section_id
-                    JOIN departments as dept ON dept.id=s.department_id
-                    JOIN halls as h ON h.id=s.hall_id
-                    WHERE s.roll=$1
+                    JOIN users as u ON u.id=s.user_id
+                    LEFT JOIN terms as t ON t.id=s.current_term
+                    WHERE s.roll_number=$1
                 `;
 
                 const params = [idnetifier];
@@ -246,20 +241,22 @@ class UserModel{
                         u.bank_account_number,
                         u.present_address,
                         u.permanent_address,
-                        u.birth_registration_number,
-                        u.date_of_birth,
+                        u.birth_reg_number,
+                        u.birth_date,
                         u.nid_number,
                         u.passport_number,
                         u.refresh_token,
-                        teach.employee_id,
+                        u.emergency_contact_name,
+                        u.emergency_contact_number,
+                        u.emergency_contact_relation,
                         teach.appointment,
                         teach.official_mail,
                         dept.id as department_id,
                         dept.name as department_name
                     FROM teachers teach
-                    JOIN users as u ON u.id=teach.id
+                    JOIN users as u ON u.id=teach.user_id
                     JOIN departments as dept ON dept.id=teach.department_id
-                    WHERE teach.employee_id=$1
+                    WHERE teach.user_id=$1
                 `;
 
                 const params = [idnetifier];
@@ -275,7 +272,7 @@ class UserModel{
             async()=>{
                 const query = `
                     UPDATE users 
-                    SET refresh_token = $2, updated_at = NOW()
+                    SET refresh_token = $2
                     WHERE id = $1
                     RETURNING *
                     `;
@@ -309,7 +306,7 @@ class UserModel{
             async()=>{
                 const query = `
                     UPDATE users 
-                    SET refresh_token = NULL, updated_at = NOW()
+                    SET refresh_token = NULL
                     WHERE id = $1
                     RETURNING id
                 `;
@@ -317,68 +314,6 @@ class UserModel{
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0] || null;
             }
-        )
-    }
-
-
-    createEmergencyContact = (payload)=>{
-        return this.db.run(
-            'Create Emergency cnt',
-            async () => {
-                const {user_id, name, relation, mobile_number, address} = payload ;
-                
-                const query = `INSERT INTO emergency_contacts (user_id, name, relation, mobile_number, address)
-                                VALUES ($1, $2, $3, $4, $5)
-                                RETURNING *;`;
-                const params = [user_id, name, relation, mobile_number, address];
-                const res = await this.db.query_executor(query, params);
-                return res.rows[0];
-            }
-        );
-    }
-
-    updateEmergencyContact = (payload)=>{
-        return this.db.run(
-            'Update Emergency contact info',
-            async()=>{
-                const {id,user_id, name, relation, mobile_number, address} = payload ;
-                const query = `UPDATE emergency_contacts
-                                SET user_id =$2,
-                                relation =$4,
-                                name=$3,
-                                mobile_number=$5,
-                                address =$6
-                                WHERE id=$1
-                                RETURNING *;`;
-                const params = [id,user_id, name, relation, mobile_number, address];
-                const res = await this.db.query_executor(query, params);
-                return res.rows[0];
-            }
-        )
-    }
-
-    deleteEmergencyContact = (id)=>{
-        return this.db.run(
-            'Delete Emergency cnt by Id',
-            async ()=>{
-                const query = `DELETE FROM emergency_contacts WHERE id=$1 RETURNING *;`;
-                const params = [id];
-                const res =  await this.db.query_executor(query, params);
-                return res.rows[0];
-            }
-        )
-    }
-
-    getEmergencyContactById= (id)=>{
-        return this.db.run(
-            'Get Emergency cnt ny id',
-            async ()=>{
-                const query = `SELECT * FROM emergency_contacts WHERE id=$1;`;
-                const params = [id];
-                const res =  await this.db.query_executor(query, params);
-                return res.rows[0];
-            }
-
         )
     }
 }
