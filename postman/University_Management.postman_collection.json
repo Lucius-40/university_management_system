@@ -407,6 +407,67 @@
 			]
 		},
 		{
+			"name": "Teacher Sections",
+			"item": [
+				{
+					"name": "Get My Sections",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/teacher-sections/my-sections",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"teacher-sections",
+								"my-sections"
+							]
+						},
+						"description": "Get all sections taught by the authenticated teacher in current terms. Returns section name, department info (id, code, name), course info (code, name), and term info (id, number)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Students in Section",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/teacher-sections/sections/A/department/1/students",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"teacher-sections",
+								"sections",
+								"A",
+								"department",
+								"1",
+								"students"
+							]
+						},
+						"description": "Get all enrolled students in a specific section taught by the authenticated teacher. Requires section name and department ID. Returns student info (user_id, name, roll_number, email) and course info (code, name)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "Students",
 			"item": [
 				{

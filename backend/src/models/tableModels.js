@@ -2,7 +2,7 @@ const DB_Connection = require("../database/db.js");
 const { runWithLogging } = require("../utils/runWithLogging.js");
 
 const table_query = `
--- ENUMs
+    -- ENUMs
     DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'student_status_enum') THEN
             CREATE TYPE student_status_enum AS ENUM ('Active', 'Graduated', 'Paused');
@@ -394,6 +394,92 @@ LEFT JOIN ct_best3 ct ON ct.enrollment_id = e.enrollment_id
 LEFT JOIN attendance_sum att ON att.enrollment_id = e.enrollment_id
 LEFT JOIN final_sum fin ON fin.enrollment_id = e.enrollment_id
 ORDER BY c.course_code;
+$$;
+
+-- Function to get all sections taught by a teacher in current terms
+CREATE OR REPLACE FUNCTION get_teacher_sections(p_teacher_id INT)
+RETURNS TABLE (
+    section_name VARCHAR,
+    department_id INT,
+    department_code VARCHAR,
+    department_name VARCHAR,
+    course_code VARCHAR,
+    course_name VARCHAR,
+    term_id INT,
+    term_number INT
+)
+LANGUAGE sql
+AS $$
+WITH current_term_date AS (
+    SELECT newest_term_start FROM current_state LIMIT 1
+),
+current_terms AS (
+    SELECT t.id, t.term_number, t.department_id
+    FROM terms t, current_term_date ctd
+    WHERE t.start_date = ctd.newest_term_start
+)
+SELECT DISTINCT
+    te.section_name,
+    c.department_id,
+    d.code AS department_code,
+    d.name AS department_name,
+    c.course_code,
+    c.name AS course_name,
+    ct.id AS term_id,
+    ct.term_number
+FROM teaches te
+JOIN course_offerings co ON te.course_offering_id = co.id
+JOIN courses c ON co.course_id = c.id
+JOIN departments d ON c.department_id = d.id
+JOIN current_terms ct ON co.term_id = ct.id
+WHERE te.teacher_id = p_teacher_id
+ORDER BY d.code, c.course_code, te.section_name;
+$$;
+
+-- Function to get students in a specific section taught by a teacher
+CREATE OR REPLACE FUNCTION get_students_in_teacher_section(
+    p_teacher_id INT,
+    p_section_name VARCHAR,
+    p_department_id INT
+)
+RETURNS TABLE (
+    user_id INT,
+    name VARCHAR,
+    roll_number VARCHAR,
+    email VARCHAR,
+    course_code VARCHAR,
+    course_name VARCHAR
+)
+LANGUAGE sql
+AS $$
+WITH current_term_date AS (
+    SELECT newest_term_start FROM current_state LIMIT 1
+),
+current_terms AS (
+    SELECT t.id
+    FROM terms t, current_term_date ctd
+    WHERE t.start_date = ctd.newest_term_start
+)
+SELECT DISTINCT
+    s.user_id,
+    u.name,
+    s.roll_number,
+    u.email,
+    c.course_code,
+    c.name AS course_name
+FROM teaches te
+JOIN course_offerings co ON te.course_offering_id = co.id
+JOIN courses c ON co.course_id = c.id
+JOIN student_enrollments se ON se.course_offering_id = co.id
+JOIN students s ON se.student_id = s.user_id
+JOIN users u ON s.user_id = u.id
+JOIN student_sections ss ON ss.student_id = s.user_id AND ss.section_name = te.section_name
+JOIN current_terms ct ON co.term_id = ct.id
+WHERE te.teacher_id = p_teacher_id
+  AND te.section_name = p_section_name
+  AND c.department_id = p_department_id
+  AND se.status = 'Enrolled'
+ORDER BY s.roll_number;
 $$;
 
 CREATE TABLE IF NOT EXISTS current_state (
