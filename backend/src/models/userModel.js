@@ -15,12 +15,12 @@ class UserModel{
 
                 const query = `
                     INSERT INTO users
-                        (name, mobile_number, email, password_hash, role, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                        (name, mobile_number, email, password_hash, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     RETURNING *;
                 `;
 
-                const params = [name, mobile_number, email, password_hash, role, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation];
+                const params = [name, mobile_number, email, password_hash, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation];
 
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
