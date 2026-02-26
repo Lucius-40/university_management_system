@@ -1,0 +1,18 @@
+1. Ensure constraints : for one student in a fixed course for a fixed term, there can be only 1 term final entry and 4 CT marking components
+    a. Trigger to handle this (can be done in backend but teachers may like the triggers)
+ 
+2. Need to find each student associated with a section, in which a particular teacher teaches
+    a. Find all students in section 
+    b. from teaches, figure out the enrollment_id (from course course_offering_id and student id)
+    c. use that to make marking comp
+
+3. Need to set up the registration flow :
+    a. check pre reqs 
+    b. check dues 
+    c. approve 
+    d. after approval 
+
+4. make a report for each term for a student 
+    a. handle with procedure 
+    b. should have grades for each subject 
+
