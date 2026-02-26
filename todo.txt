@@ -1,5 +1,5 @@
 1. Ensure constraints : for one student in a fixed course for a fixed term, there can be only 1 term final entry and 4 CT marking components
-    a. Trigger to handle this (can be done in backend but teachers may like the triggers)
+    a. Trigger to handle this (can be done in backend but teachers may like the triggers) (Done)
  
 2. Need to find each student associated with a section, in which a particular teacher teaches (Done, check schema)
     a. Find all students in section 
