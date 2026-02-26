@@ -19,5 +19,7 @@
 5. Need to populate DB
 
 6. Need to fig out a way to know which term is running at the moment , and reg will only work for a given time window 
+for now :
+    I have a current state table that has the reg window and start data of the most recent term
 
 7.Handle in front end : reg only available in valid time 
