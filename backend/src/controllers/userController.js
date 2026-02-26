@@ -23,7 +23,8 @@ class UserController {
                 name,
                 email,
                 password_hash,
-                role
+                role,
+                ...otherDetails
             });
 
             if (!newUser) {
