@@ -1,8 +1,169 @@
-# Student Registration Flow - Postman Testing Guide
+# Postman Testing Guide - University Management System
+
+This guide explains how to test the University Management System API endpoints using the provided Postman collection.
+
+## Quick Links
+
+- **[Teacher Sections Testing](#teacher-sections-testing)** - Test teacher interface for viewing sections and students
+- **[Student Registration Flow](#student-registration-flow-testing)** - Test student course registration
+
+---
+
+## Teacher Sections Testing
+
+### Overview
+The teacher sections feature allows teachers to:
+1. View all sections they teach across departments in current terms
+2. View all enrolled students in a specific section
+
+### Setup
+
+#### 1. Import Postman Collection
+1. Open Postman
+2. Import `University_Management.postman_collection.json`
+3. Import `University_Env.postman_environment.json`
+4. Select "University Env" as the active environment
+
+#### 2. Setup Teacher Test Data
+
+Run the teacher test data SQL script:
+
+```bash
+psql -U your_username -d university_db -f Teacher_Sections_Test_Setup.sql
+```
+
+This creates:
+- ✅ 2 Departments (CSE, BME)
+- ✅ 2 Current terms (both starting 2026-01-15)
+- ✅ 1 Teacher (Dr. Sarah Johnson) teaching in both departments
+- ✅ 4 Courses (CSE105, CSE106, BME201, BME202)
+- ✅ 10 Students (5 in Section A/CSE, 5 in Section B/BME)
+- ✅ All students enrolled with 'Enrolled' status
+
+**Teacher teaches:**
+- CSE105 & CSE106 in Section A (CSE department)
+- BME201 & BME202 in Section B (BME department)
+
+#### 3. Login as Teacher
+
+Run **Auth > Login** with teacher credentials:
+```json
+{
+  "email": "sarah.johnson@university.com",
+  "password": "password123"
+}
+```
+
+Note: You may need to update the password hash in the database or use the registration API to create the teacher with a real password.
+
+### Testing Teacher Sections Endpoints
+
+Navigate to **Teacher Sections** folder in Postman.
+
+#### Test 1: Get My Sections
+
+**Request:** `GET /api/teacher-sections/my-sections`
+
+**Authorization:** Bearer token (auto-filled from login)
+
+**Expected Response (200 OK):**
+```json
+[
+  {
+    "section_name": "A",
+    "department_id": 1,
+    "department_code": "CSE",
+    "department_name": "Computer Science and Engineering",
+    "course_code": "CSE105",
+    "course_name": "Introduction to Programming",
+    "term_id": 1,
+    "term_number": 3
+  },
+  {
+    "section_name": "A",
+    "department_id": 1,
+    "department_code": "CSE",
+    "department_name": "Computer Science and Engineering",
+    "course_code": "CSE106",
+    "course_name": "Programming Lab",
+    "term_id": 1,
+    "term_number": 3
+  },
+  // ... 2 more entries for BME Section B
+]
+```
+
+**Returns:** 4 rows total (2 courses in CSE Section A + 2 courses in BME Section B)
+
+#### Test 2: Get Students in CSE Section A
+
+**Request:** `GET /api/teacher-sections/sections/A/department/1/students`
+
+**URL Parameters:**
+- `sectionName`: A
+- `departmentId`: 1 (CSE)
+
+**Expected Response (200 OK):**
+```json
+[
+  {
+    "user_id": 2,
+    "name": "Alice Chen",
+    "roll_number": "CSE2024001",
+    "email": "alice.chen@student.edu",
+    "course_code": "CSE105",
+    "course_name": "Introduction to Programming"
+  },
+  {
+    "user_id": 2,
+    "name": "Alice Chen",
+    "roll_number": "CSE2024001",
+    "email": "alice.chen@student.edu",
+    "course_code": "CSE106",
+    "course_name": "Programming Lab"
+  },
+  // ... More students (Bob, Carol, David, Emma)
+]
+```
+
+**Returns:** 10 rows (5 students × 2 courses each)
+
+#### Test 3: Get Students in BME Section B
+
+**Request:** `GET /api/teacher-sections/sections/B/department/2/students`
+
+**URL Parameters:**
+- `sectionName`: B
+- `departmentId`: 2 (BME)
+
+**Expected Response (200 OK):** Similar to above, with 5 BME students
+
+**Returns:** 10 rows (5 students × 2 courses each)
+
+#### Test 4: Edge Case - Wrong Section/Department
+
+**Request:** `GET /api/teacher-sections/sections/B/department/1/students`
+
+(Teacher teaches CSE in Section A, not B)
+
+**Expected Response (404 Not Found):**
+```json
+{
+  "message": "No enrolled students found in this section"
+}
+```
+
+### Additional Documentation
+
+For detailed testing procedures, troubleshooting, and manual testing with cURL, see [TESTING_GUIDE.md](TESTING_GUIDE.md).
+
+---
+
+## Student Registration Flow Testing
 
 This guide explains how to test the student course registration flow using the provided Postman collection. Please clear the DB or create a copy with 0 rows to start
 
-## Setup
+### Setup
 
 ### 1. Import Postman Collection and Environment
 
