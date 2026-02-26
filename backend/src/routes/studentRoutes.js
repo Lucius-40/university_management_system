@@ -13,4 +13,10 @@ router.get('/roll/:roll_number', auth.authenticateToken, studentController.getSt
 router.put('/:user_id', auth.authenticateToken, studentController.updateStudent);
 router.delete('/:user_id', auth.authenticateToken, studentController.deleteStudent);
 
+// Registration routes
+router.post('/:user_id/register', auth.authenticateToken, studentController.registerForCourses);
+router.get('/:user_id/available-courses', auth.authenticateToken, studentController.getAvailableCourses);
+router.get('/:user_id/registration-eligibility', auth.authenticateToken, studentController.getRegistrationEligibility);
+
+
 module.exports = router;

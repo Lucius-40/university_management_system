@@ -2,6 +2,8 @@ const express = require('express');
 const dotenv = require('dotenv');
 const path = require('path');
 const cors = require('cors');
+const tableModel = require('./models/tableModels');
+
 dotenv.config({path: path.resolve(__dirname, './.env')});
 
 const TableModel = require('./models/tableModels.js');
