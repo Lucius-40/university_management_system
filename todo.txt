@@ -16,3 +16,4 @@
     a. handle with procedure 
     b. should have grades for each subject 
 
+5. Need to populate DB

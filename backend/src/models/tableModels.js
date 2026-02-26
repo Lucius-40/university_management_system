@@ -14,7 +14,7 @@ const table_query = `
             CREATE TYPE enrollment_status_enum AS ENUM ('Pending', 'Enrolled', 'Withdrawn');
         END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'marking_type_enum') THEN
-            CREATE TYPE marking_type_enum AS ENUM ('Midterm', 'Final');
+            CREATE TYPE marking_type_enum AS ENUM ('Midterm', 'Final', 'CT','Attendance');
         END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'marking_status_enum') THEN
             CREATE TYPE marking_status_enum AS ENUM ('Published', 'Draft');
@@ -67,6 +67,7 @@ const table_query = `
         end_date DATE NOT NULL,
         department_id INTEGER REFERENCES departments(id) NOT NULL
     );
+        ALTER TABLE terms ADD CONSTRAINT unique_term_per_dept_start UNIQUE (term_number, department_id, start_date);
 
     CREATE TABLE IF NOT EXISTS teachers (
         user_id INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -194,6 +195,98 @@ const table_query = `
         csv_file_url TEXT,
         average_rating DECIMAL(3, 2)
     );
+ 
+     
+    -- Trigger function to enforce limits per enrollment (only Published)
+CREATE OR REPLACE FUNCTION trg_marking_components_limits()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    existing_ct_count INT;
+    existing_att_count INT;
+    existing_final_count INT;
+    exclude_id INT := NULL;
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        exclude_id := OLD.id;
+    END IF;
+
+    -- Count existing Published components for the same enrollment, excluding the current row if updating
+    SELECT COUNT(*) INTO existing_ct_count
+    FROM marking_components
+    WHERE enrollment_id = NEW.enrollment_id
+      AND status = 'Published'
+      AND type = 'CT'
+      AND (id IS DISTINCT FROM exclude_id);
+
+    SELECT COUNT(*) INTO existing_att_count
+    FROM marking_components
+    WHERE enrollment_id = NEW.enrollment_id
+      AND status = 'Published'
+      AND type = 'Attendance'
+      AND (id IS DISTINCT FROM exclude_id);
+
+    SELECT COUNT(*) INTO existing_final_count
+    FROM marking_components
+    WHERE enrollment_id = NEW.enrollment_id
+      AND status = 'Published'
+      AND type = 'Final'
+      AND (id IS DISTINCT FROM exclude_id);
+
+    -- If NEW will be Published, check the incremented counts
+    IF NEW.status = 'Published' THEN
+        IF NEW.type = 'CT' THEN
+            IF existing_ct_count + 1 > 4 THEN
+                RAISE EXCEPTION 'Limit exceeded: enrollment_id=% already has % Published CT components; max allowed is 4.',
+                    NEW.enrollment_id, existing_ct_count;
+            END IF;
+        ELSIF NEW.type = 'Attendance' THEN
+            IF existing_att_count + 1 > 1 THEN
+                RAISE EXCEPTION 'Limit exceeded: enrollment_id=% already has % Published Attendance components; max allowed is 1.',
+                    NEW.enrollment_id, existing_att_count;
+            END IF;
+        ELSIF NEW.type = 'Final' THEN
+            IF existing_final_count + 1 > 1 THEN
+                RAISE EXCEPTION 'Limit exceeded: enrollment_id=% already has % Published Final components; max allowed is 1.',
+                    NEW.enrollment_id, existing_final_count;
+            END IF;
+        ELSE
+            -- For other types, still ensure existing data is not already violating limits
+            IF existing_ct_count > 4 THEN
+                RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published CT components (>4).', NEW.enrollment_id, existing_ct_count;
+            END IF;
+            IF existing_att_count > 1 THEN
+                RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published Attendance components (>1).', NEW.enrollment_id, existing_att_count;
+            END IF;
+            IF existing_final_count > 1 THEN
+                RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published Final components (>1).', NEW.enrollment_id, existing_final_count;
+            END IF;
+        END IF;
+    ELSE
+        -- NEW is not Published: still block if existing published rows already violate limits
+        IF existing_ct_count > 4 THEN
+            RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published CT components (>4).', NEW.enrollment_id, existing_ct_count;
+        END IF;
+        IF existing_att_count > 1 THEN
+            RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published Attendance components (>1).', NEW.enrollment_id, existing_att_count;
+        END IF;
+        IF existing_final_count > 1 THEN
+            RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published Final components (>1).', NEW.enrollment_id, existing_final_count;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+-- Attach the trigger to marking_components
+DROP TRIGGER IF EXISTS marking_components_limits_trg ON marking_components;
+
+CREATE TRIGGER marking_components_limits_trg
+BEFORE INSERT OR UPDATE ON marking_components
+FOR EACH ROW
+EXECUTE FUNCTION trg_marking_components_limits();
 `
 
 class TableModel {
