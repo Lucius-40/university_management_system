@@ -56,6 +56,55 @@ class SectionModel {
             }
         );
     }
+
+    // Student section assignment methods
+    assignStudentToSection = (student_id, section_name) => {
+        return this.db.run(
+            'assign_student_to_section',
+            async () => {
+                const query = `
+                    INSERT INTO student_sections (student_id, section_name)
+                    VALUES ($1, $2)
+                    RETURNING *;
+                `;
+                const params = [student_id, section_name];
+                const result = await this.db.query_executor(query, params);
+                return result.rows[0];
+            }
+        );
+    }
+
+    getStudentSection = (student_id) => {
+        return this.db.run(
+            'get_student_section',
+            async () => {
+                const query = `
+                    SELECT * FROM student_sections 
+                    WHERE student_id = $1
+                    ORDER BY section_name DESC
+                    LIMIT 1;
+                `;
+                const params = [student_id];
+                const result = await this.db.query_executor(query, params);
+                return result.rows[0];
+            }
+        );
+    }
+
+    checkSectionExists = (term_id, section_name) => {
+        return this.db.run(
+            'check_section_exists',
+            async () => {
+                const query = `
+                    SELECT * FROM sections 
+                    WHERE term_id = $1 AND name = $2;
+                `;
+                const params = [term_id, section_name];
+                const result = await this.db.query_executor(query, params);
+                return result.rows[0];
+            }
+        );
+    }
 }
 
 module.exports = SectionModel;

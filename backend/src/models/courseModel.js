@@ -103,6 +103,83 @@ class CourseModel {
             }
         );
     }
+
+    // Registration helper methods
+    getCourseOfferingsByTerm = (term_id, department_id = null) => {
+        return this.db.run(
+            'get_course_offerings_by_term',
+            async () => {
+                let query = `
+                    SELECT co.*, c.course_code, c.name, c.credit_hours, c.type, c.department_id
+                    FROM course_offerings co
+                    JOIN courses c ON co.course_id = c.id
+                    WHERE co.term_id = $1
+                `;
+                const params = [term_id];
+                
+                if (department_id) {
+                    query += ` AND c.department_id = $2`;
+                    params.push(department_id);
+                }
+                
+                query += ` ORDER BY c.course_code;`;
+                
+                const result = await this.db.query_executor(query, params);
+                return result.rows;
+            }
+        );
+    }
+
+    getCoursePrerequisites = (course_id) => {
+        return this.db.run(
+            'get_course_prerequisites',
+            async () => {
+                const query = `
+                    SELECT cp.prereq_id, c.course_code, c.name
+                    FROM course_prerequisites cp
+                    JOIN courses c ON cp.prereq_id = c.id
+                    WHERE cp.course_id = $1;
+                `;
+                const params = [course_id];
+                const result = await this.db.query_executor(query, params);
+                return result.rows;
+            }
+        );
+    }
+
+    getCourseOfferingEnrollmentCount = (course_offering_id) => {
+        return this.db.run(
+            'get_course_offering_enrollment_count',
+            async () => {
+                const query = `
+                    SELECT COUNT(*) as enrollment_count
+                    FROM student_enrollments
+                    WHERE course_offering_id = $1
+                    AND status IN ('Pending', 'Enrolled');
+                `;
+                const params = [course_offering_id];
+                const result = await this.db.query_executor(query, params);
+                return parseInt(result.rows[0].enrollment_count);
+            }
+        );
+    }
+
+    getCourseOfferingDetails = (course_offering_id) => {
+        return this.db.run(
+            'get_course_offering_details',
+            async () => {
+                const query = `
+                    SELECT co.*, c.course_code, c.name, c.credit_hours, c.type, c.department_id
+                    FROM course_offerings co
+                    JOIN courses c ON co.course_id = c.id
+                    WHERE co.id = $1;
+                `;
+                const params = [course_offering_id];
+                const result = await this.db.query_executor(query, params);
+                return result.rows[0];
+            }
+        );
+    }
 }
 
 module.exports = CourseModel;

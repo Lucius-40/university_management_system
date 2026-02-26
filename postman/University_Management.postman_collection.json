@@ -441,6 +441,130 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Registration Flow",
+					"item": [
+						{
+							"name": "1. Check Registration Eligibility",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{accessToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/students/{{studentId}}/registration-eligibility?term_number=3",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"students",
+										"{{studentId}}",
+										"registration-eligibility"
+									],
+									"query": [
+										{
+											"key": "term_number",
+											"value": "3",
+											"description": "Term number (1-8)"
+										}
+									]
+								},
+								"description": "Check if student is eligible to register for courses in a specific term. Returns eligibility status, registration period, overdue dues, advisor info, available sections, and credit limits."
+							},
+							"response": []
+						},
+						{
+							"name": "2. Get Available Courses",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{accessToken}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/students/{{studentId}}/available-courses?term_number=3",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"students",
+										"{{studentId}}",
+										"available-courses"
+									],
+									"query": [
+										{
+											"key": "term_number",
+											"value": "3",
+											"description": "Term number (1-8)"
+										}
+									]
+								},
+								"description": "Get list of available courses for a specific term. Shows course details, prerequisites, missing prerequisites, enrollment status, capacity info, and whether it's a retake."
+							},
+							"response": []
+						},
+						{
+							"name": "3. Register for Courses",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"// Save enrollment IDs for future tests",
+											"var jsonData = pm.response.json();",
+											"if (jsonData.enrollments && jsonData.enrollments.length > 0) {",
+											"    pm.environment.set(\"enrollmentId\", jsonData.enrollments[0].id);",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{accessToken}}",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"term_number\": 3,\n    \"section_name\": \"A\",\n    \"course_offering_ids\": [1, 2, 3]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/students/{{studentId}}/register",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"students",
+										"{{studentId}}",
+										"register"
+									]
+								},
+								"description": "Register student for multiple courses in a specific term and section. Creates pending enrollments that require advisor approval.\n\nValidates:\n- Registration period is active\n- Student status is Active\n- No overdue dues\n- All prerequisites are met\n- Credit limit not exceeded (max 23)\n- No duplicate enrollments\n- Section exists\n\nReturns enrollments, section assignment, advisor info, and credit details."
+							},
+							"response": []
+						}
+					]
 				}
 			]
 		},
