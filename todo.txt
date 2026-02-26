@@ -6,7 +6,7 @@
     b. from teaches, figure out the enrollment_id (from course course_offering_id and student id)
     c. use that to make marking comp
 
-3. Need to set up the registration flow :
+3. Need to set up the registration flow : (Done)
     a. check pre reqs 
     b. check dues 
     c. approve 
