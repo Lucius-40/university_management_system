@@ -44,6 +44,24 @@ class SectionModel {
             }
         );
     }
+
+    updateSection = (payload) => {
+        return this.db.run(
+            'update_section',
+            async () => {
+                const { original_term_id, original_name, term_id, name } = payload;
+                const query = `
+                    UPDATE sections
+                    SET term_id = $3, name = $4
+                    WHERE term_id = $1 AND name = $2
+                    RETURNING *;
+                `;
+                const params = [original_term_id, original_name, term_id, name];
+                const result = await this.db.query_executor(query, params);
+                return result.rows[0];
+            }
+        );
+    }
     
     deleteSection = (term_id, name) => {
         return this.db.run(

@@ -9,6 +9,7 @@ const auth = new AuthenticateToken();
 router.post('/', auth.authenticateToken, sectionController.createSection);
 router.get('/', auth.authenticateToken, sectionController.getAllSections);
 router.get('/term/:term_id', auth.authenticateToken, sectionController.getSectionsByTermId);
+router.put('/', auth.authenticateToken, sectionController.updateSection);
 router.delete('/', auth.authenticateToken, sectionController.deleteSection);
 
 module.exports = router;

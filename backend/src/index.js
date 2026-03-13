@@ -20,6 +20,7 @@ const paymentRoutes = require('./routes/paymentRoutes.js');
 const markingRoutes = require('./routes/markingRoutes.js');
 const feedbackRoutes = require('./routes/feedbackRoutes.js');
 const superAdminRoutes = require('./routes/superAdminRoutes.js');
+const initialCredentialsRoutes = require('./routes/initialCredentialsRoutes.js');
 
 
 const app = express();
@@ -45,6 +46,7 @@ app.use('/api/sections', sectionRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/markings', markingRoutes);
 app.use('/api/feedbacks', feedbackRoutes);
+app.use('/api/credentials', initialCredentialsRoutes);
 
 // create table for once at the start, never run this again. request on this url: '/api/table/create-tables', lol
 

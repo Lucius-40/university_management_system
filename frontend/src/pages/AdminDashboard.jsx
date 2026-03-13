@@ -1,0 +1,343 @@
+import { useMemo, useState } from "react";
+import { useNavigate, NavLink, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import {
+  LogOut,
+  Building,
+  Users,
+  LayoutDashboard,
+  ChevronDown,
+  ChevronRight,
+  BookOpen,
+  Clock,
+  UserPlus,
+  Search,
+} from "lucide-react";
+import CreateInfrastructure from "./CreateInfrastructure";
+import CreateEntity from "./CreateEntity";
+import DepartmentDetails from "./DepartmentDetails";
+import ProfilePage from "./ProfilePage";
+import EntityInspect from "./EntityInspect";
+import InspectionPage from "./InspectionPage";
+
+const AdminDashboard = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const shouldOpenInfrastructure = useMemo(
+    () =>
+      location.pathname.includes("/admin/dashboard/departments") ||
+      location.pathname.includes("/admin/dashboard/terms") ||
+      location.pathname.includes("/admin/dashboard/sections") ||
+      location.pathname.includes("/admin/dashboard/courses") ||
+      location.pathname === "/admin/dashboard",
+    [location.pathname]
+  );
+
+  const shouldOpenEntities = useMemo(
+    () =>
+      location.pathname.includes("/admin/dashboard/entities") ||
+      location.pathname.includes("/admin/dashboard/profiles"),
+    [location.pathname]
+  );
+
+  const shouldOpenInspection = useMemo(
+    () => location.pathname.includes("/admin/dashboard/inspection"),
+    [location.pathname]
+  );
+
+  const [manualInfrastructureOpen, setManualInfrastructureOpen] = useState(null);
+  const [manualEntitiesOpen, setManualEntitiesOpen] = useState(null);
+  const [manualInspectionOpen, setManualInspectionOpen] = useState(null);
+  const isInfrastructureOpen =
+    manualInfrastructureOpen === null ? shouldOpenInfrastructure : manualInfrastructureOpen;
+  const isEntitiesOpen = manualEntitiesOpen === null ? shouldOpenEntities : manualEntitiesOpen;
+  const isInspectionOpen =
+    manualInspectionOpen === null ? shouldOpenInspection : manualInspectionOpen;
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    navigate("/login");
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      <aside className="w-72 bg-slate-900 text-white flex flex-col">
+        <div className="p-4 border-b border-slate-700">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <LayoutDashboard size={20} />
+            System Portal
+          </h2>
+        </div>
+
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          <div>
+            <button
+              type="button"
+              onClick={() => setManualInfrastructureOpen((prev) => !(prev ?? shouldOpenInfrastructure))}
+              className="flex items-center justify-between w-full p-3 rounded transition text-slate-200 hover:bg-slate-800"
+            >
+              <span className="flex items-center gap-3">
+                <Building size={18} />
+                Infrastructure
+              </span>
+              {isInfrastructureOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+            </button>
+
+            {isInfrastructureOpen && (
+              <div className="ml-8 mt-2 space-y-2">
+                <NavLink
+                  to="/admin/dashboard/departments"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Building size={15} />
+                  Departments
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/terms"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Clock size={15} />
+                  Terms
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/courses"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <BookOpen size={15} />
+                  Courses
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/sections"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Users size={15} />
+                  Sections
+                </NavLink>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setManualEntitiesOpen((prev) => !(prev ?? shouldOpenEntities))}
+              className="flex items-center justify-between w-full p-3 rounded transition text-slate-200 hover:bg-slate-800"
+            >
+              <span className="flex items-center gap-3">
+                <Users size={18} />
+                Entities
+              </span>
+              {isEntitiesOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+            </button>
+
+            {isEntitiesOpen && (
+              <div className="ml-8 mt-2 space-y-2">
+                <NavLink
+                  to="/admin/dashboard/entities/students"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <UserPlus size={15} />
+                  Students
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/entities/teachers"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <UserPlus size={15} />
+                  Teachers
+                </NavLink>
+              </div>
+            )}
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => setManualInspectionOpen((prev) => !(prev ?? shouldOpenInspection))}
+              className="flex items-center justify-between w-full p-3 rounded transition text-slate-200 hover:bg-slate-800"
+            >
+              <span className="flex items-center gap-3">
+                <Search size={18} />
+                Inspection
+              </span>
+              {isInspectionOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+            </button>
+
+            {isInspectionOpen && (
+              <div className="ml-8 mt-2 space-y-2">
+                <NavLink
+                  to="/admin/dashboard/inspection/departments"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Building size={15} />
+                  Departments
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/inspection/terms"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Clock size={15} />
+                  Terms
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/inspection/courses"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <BookOpen size={15} />
+                  Courses
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/inspection/sections"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Users size={15} />
+                  Sections
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/inspection/students"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <UserPlus size={15} />
+                  Students
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/inspection/teachers"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <UserPlus size={15} />
+                  Teachers
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/inspection/initial-credential-check"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Search size={15} />
+                  Initial Credential Check
+                </NavLink>
+              </div>
+            )}
+          </div>
+
+          
+        </nav>
+
+        <div className="p-4 border-t border-slate-700">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 w-full p-2 text-red-400 hover:text-red-300 hover:bg-slate-800 rounded transition"
+          >
+            <LogOut size={18} />
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 overflow-auto p-8">
+        <Routes>
+          <Route path="/departments" element={<CreateInfrastructure initialTab="department" />} />
+          <Route path="/departments/:identifier" element={<DepartmentDetails />} />
+          <Route path="/terms" element={<CreateInfrastructure initialTab="term" />} />
+          <Route path="/sections" element={<CreateInfrastructure initialTab="section" />} />
+          <Route path="/courses" element={<CreateInfrastructure initialTab="course" />} />
+          <Route path="/inspection" element={<Navigate to="/admin/dashboard/inspection/departments" replace />} />
+          <Route path="/inspection/departments" element={<InspectionPage initialTab="departments" />} />
+          <Route path="/inspection/terms" element={<InspectionPage initialTab="terms" />} />
+          <Route path="/inspection/courses" element={<InspectionPage initialTab="courses" />} />
+          <Route path="/inspection/sections" element={<InspectionPage initialTab="sections" />} />
+          <Route path="/inspection/students" element={<InspectionPage initialTab="students" />} />
+          <Route path="/inspection/teachers" element={<InspectionPage initialTab="teachers" />} />
+          <Route
+            path="/inspection/initial-credential-check"
+            element={<InspectionPage initialTab="initial-credential-check" />}
+          />
+          <Route path="/entities/students" element={<CreateEntity initialTab="student" />} />
+          <Route path="/entities/teachers" element={<CreateEntity initialTab="teacher" />} />
+          <Route path="/entities/inspect" element={<EntityInspect />} />
+          <Route path="/entities" element={<CreateEntity initialTab="student" />} />
+          <Route path="/profiles/:role/:id" element={<ProfilePage />} />
+          <Route path="*" element={<CreateInfrastructure initialTab="department" />} />
+        </Routes>
+      </main>
+    </div>
+  );
+};
+
+export default AdminDashboard;

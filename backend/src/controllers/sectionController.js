@@ -34,6 +34,25 @@ class SectionController {
             res.status(500).json({ error: error.message });
         }
     }
+
+    updateSection = async (req, res) => {
+        try {
+            const { original_term_id, original_name, term_id, name } = req.body;
+            if (!original_term_id || !original_name || !term_id || !name) {
+                return res.status(400).json({ message: "original_term_id, original_name, term_id and name are required" });
+            }
+
+            const section = await this.sectionModel.updateSection(req.body);
+            if (!section) {
+                return res.status(404).json({ message: "Section not found" });
+            }
+
+            res.status(200).json(section);
+        } catch (error) {
+            console.error("Update Section error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
     
     deleteSection = async (req, res) => {
         try {
