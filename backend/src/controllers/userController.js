@@ -1,10 +1,20 @@
 const UserModel = require('../models/userModel.js');
+const InitialCredentialsModel = require('../models/initialCredentialsModel.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 class UserController {
     constructor() {
         this.userModel = new UserModel();
+        this.initialCredentialsModel = new InitialCredentialsModel();
+    }
+
+    sanitizeSensitiveFields = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj;
+        const sanitized = { ...obj };
+        delete sanitized.password_hash;
+        delete sanitized.refresh_token;
+        return sanitized;
     }
 
     registerUser = async (req, res) => {
@@ -29,6 +39,12 @@ class UserController {
 
             if (!newUser) {
                 return res.status(500).json({ message: "Failed to create user." });
+            }
+
+            try {
+                await this.initialCredentialsModel.createCredential(newUser.id, name, password);
+            } catch (credError) {
+                console.error("Failed to save initial credentials:", credError);
             }
 
             try {
@@ -152,12 +168,59 @@ class UserController {
             }
 
              res.status(200).json({
-                user,
-                profile: profileData
+                user: this.sanitizeSensitiveFields(user),
+                profile: this.sanitizeSensitiveFields(profileData)
             });
 
         } catch (error) {
             console.error("Get Profile error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getUserProfileByRole = async (req, res) => {
+        try {
+            const { role, id } = req.params;
+            const normalizedRole = String(role || "").toLowerCase();
+
+            let profileData = null;
+
+            if (normalizedRole === "student") {
+                profileData = await this.userModel.getStudentProfileByUserId(id);
+            } else if (normalizedRole === "teacher") {
+                profileData = await this.userModel.getTeacherProfile(id);
+            } else {
+                return res.status(400).json({ message: "Unsupported role." });
+            }
+
+            if (!profileData) {
+                return res.status(404).json({ message: "Profile not found." });
+            }
+
+            res.status(200).json({
+                role: normalizedRole,
+                profile: this.sanitizeSensitiveFields(profileData)
+            });
+        } catch (error) {
+            console.error("Get Profile By Role error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getEntityInspectData = async (req, res) => {
+        try {
+            const filters = {
+                identity: req.query.identity,
+                department: req.query.department,
+                batch: req.query.batch,
+                term: req.query.term,
+                section: req.query.section,
+            };
+
+            const data = await this.userModel.getEntityInspectData(filters);
+            res.status(200).json(data);
+        } catch (error) {
+            console.error("Get Entity Inspect Data error:", error);
             res.status(500).json({ error: error.message });
         }
     }

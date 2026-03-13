@@ -1,4 +1,4 @@
-const DB_Connection = require("../database/db.js");
+﻿const DB_Connection = require("../database/db.js");
 
 class DepartmentModel {
     constructor() {
@@ -7,7 +7,7 @@ class DepartmentModel {
 
     createDepartment = (payload) => {
         return this.db.run(
-            'create_department',
+            "create_department",
             async () => {
                 const { code, name, department_head_id } = payload;
                 const query = `
@@ -15,27 +15,27 @@ class DepartmentModel {
                     VALUES ($1, $2, $3)
                     RETURNING *;
                 `;
-                const params = [code, name, department_head_id];
+                const params = [code, name, department_head_id || null];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
             }
         );
-    }
+    };
 
     getAllDepartments = () => {
         return this.db.run(
-            'get_all_departments',
+            "get_all_departments",
             async () => {
-                const query = `SELECT * FROM departments;`;
+                const query = `SELECT * FROM departments ORDER BY code ASC, name ASC;`;
                 const result = await this.db.query_executor(query);
                 return result.rows;
             }
         );
-    }
+    };
 
     getDepartmentById = (id) => {
         return this.db.run(
-            'get_department_by_id',
+            "get_department_by_id",
             async () => {
                 const query = `SELECT * FROM departments WHERE id = $1;`;
                 const params = [id];
@@ -43,11 +43,11 @@ class DepartmentModel {
                 return result.rows[0];
             }
         );
-    }
+    };
 
     updateDepartment = (id, payload) => {
         return this.db.run(
-            'update_department',
+            "update_department",
             async () => {
                 const { code, name, department_head_id } = payload;
                 const query = `
@@ -56,16 +56,16 @@ class DepartmentModel {
                     WHERE id = $1
                     RETURNING *;
                 `;
-                const params = [id, code, name, department_head_id];
+                const params = [id, code, name, department_head_id || null];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
             }
         );
-    }
+    };
 
     deleteDepartment = (id) => {
         return this.db.run(
-            'delete_department',
+            "delete_department",
             async () => {
                 const query = `DELETE FROM departments WHERE id = $1 RETURNING *;`;
                 const params = [id];
@@ -73,7 +73,19 @@ class DepartmentModel {
                 return result.rows[0];
             }
         );
-    }
+    };
+
+    getDepartmentFullDetails = (identifier) => {
+        return this.db.run(
+            "get_department_full_details",
+            async () => {
+                const query = `SELECT get_department_full_details($1) AS details;`;
+                const params = [identifier];
+                const result = await this.db.query_executor(query, params);
+                return result.rows[0]?.details || null;
+            }
+        );
+    };
 }
 
 module.exports = DepartmentModel;
