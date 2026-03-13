@@ -5,19 +5,69 @@ class CourseModel {
         this.db = DB_Connection.getInstance();
     }
 
+    normalizeCourseType = (type) => {
+        const value = String(type || '').trim().toLowerCase();
+        if (value === 'lab') return 'Lab';
+        return 'Theory';
+    }
+
+    normalizePrereqIds = (prereq_ids = []) => {
+        if (!Array.isArray(prereq_ids)) return [];
+
+        return [...new Set(
+            prereq_ids
+                .map((id) => Number(id))
+                .filter((id) => Number.isInteger(id) && id > 0)
+        )];
+    }
+
+    replaceCoursePrerequisites = async (client, courseId, prereqIds = []) => {
+        await client.query(`DELETE FROM course_prerequisites WHERE course_id = $1;`, [courseId]);
+
+        if (prereqIds.length === 0) {
+            return;
+        }
+
+        const query = `
+            INSERT INTO course_prerequisites (course_id, prereq_id)
+            SELECT $1, UNNEST($2::int[])
+            ON CONFLICT (course_id, prereq_id) DO NOTHING;
+        `;
+        await client.query(query, [courseId, prereqIds]);
+    }
+
     createCourse = (payload) => {
         return this.db.run(
             'create_course',
             async () => {
-                const { course_code, name, credit_hours, type, department_id } = payload;
-                const query = `
-                    INSERT INTO courses (course_code, name, credit_hours, type, department_id)
-                    VALUES ($1, $2, $3, $4, $5)
-                    RETURNING *;
-                `;
-                const params = [course_code, name, credit_hours, type, department_id];
-                const result = await this.db.query_executor(query, params);
-                return result.rows[0];
+                const { course_code, name, credit_hours, type, department_id, prereq_ids = [] } = payload;
+                const rawPrereqIds = this.normalizePrereqIds(prereq_ids);
+                const normalizedType = this.normalizeCourseType(type);
+
+                const client = await this.db.pool.connect();
+                try {
+                    await client.query('BEGIN');
+
+                    const query = `
+                        INSERT INTO courses (course_code, name, credit_hours, type, department_id)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING *;
+                    `;
+                    const params = [course_code, name, credit_hours, normalizedType, department_id];
+                    const result = await client.query(query, params);
+                    const course = result.rows[0];
+
+                    const prereqIds = rawPrereqIds.filter((id) => id !== Number(course.id));
+                    await this.replaceCoursePrerequisites(client, course.id, prereqIds);
+
+                    await client.query('COMMIT');
+                    return { ...course, prereq_ids: prereqIds };
+                } catch (error) {
+                    await client.query('ROLLBACK');
+                    throw error;
+                } finally {
+                    client.release();
+                }
             }
         );
     }
@@ -26,7 +76,19 @@ class CourseModel {
         return this.db.run(
             'get_all_courses',
             async () => {
-                const query = `SELECT * FROM courses;`;
+                const query = `
+                    SELECT
+                        c.*,
+                        COALESCE(
+                            ARRAY_AGG(cp.prereq_id ORDER BY cp.prereq_id)
+                            FILTER (WHERE cp.prereq_id IS NOT NULL),
+                            ARRAY[]::INT[]
+                        ) AS prereq_ids
+                    FROM courses c
+                    LEFT JOIN course_prerequisites cp ON cp.course_id = c.id
+                    GROUP BY c.id
+                    ORDER BY c.course_code;
+                `;
                 const result = await this.db.query_executor(query);
                 return result.rows;
             }
@@ -37,7 +99,19 @@ class CourseModel {
         return this.db.run(
             'get_course_by_id',
             async () => {
-                const query = `SELECT * FROM courses WHERE id = $1;`;
+                const query = `
+                    SELECT
+                        c.*,
+                        COALESCE(
+                            ARRAY_AGG(cp.prereq_id ORDER BY cp.prereq_id)
+                            FILTER (WHERE cp.prereq_id IS NOT NULL),
+                            ARRAY[]::INT[]
+                        ) AS prereq_ids
+                    FROM courses c
+                    LEFT JOIN course_prerequisites cp ON cp.course_id = c.id
+                    WHERE c.id = $1
+                    GROUP BY c.id;
+                `;
                 const params = [id];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
@@ -49,16 +123,40 @@ class CourseModel {
         return this.db.run(
             'update_course',
             async () => {
-                const { course_code, name, credit_hours, type, department_id } = payload;
-                const query = `
-                    UPDATE courses
-                    SET course_code = $2, name = $3, credit_hours = $4, type = $5, department_id = $6
-                    WHERE id = $1
-                    RETURNING *;
-                `;
-                const params = [id, course_code, name, credit_hours, type, department_id];
-                const result = await this.db.query_executor(query, params);
-                return result.rows[0];
+                const { course_code, name, credit_hours, type, department_id, prereq_ids = [] } = payload;
+                const courseId = Number(id);
+                const prereqIds = this.normalizePrereqIds(prereq_ids).filter((prereqId) => prereqId !== courseId);
+                const normalizedType = this.normalizeCourseType(type);
+
+                const client = await this.db.pool.connect();
+                try {
+                    await client.query('BEGIN');
+
+                    const query = `
+                        UPDATE courses
+                        SET course_code = $2, name = $3, credit_hours = $4, type = $5, department_id = $6
+                        WHERE id = $1
+                        RETURNING *;
+                    `;
+                    const params = [id, course_code, name, credit_hours, normalizedType, department_id];
+                    const result = await client.query(query, params);
+                    const course = result.rows[0];
+
+                    if (!course) {
+                        await client.query('COMMIT');
+                        return null;
+                    }
+
+                    await this.replaceCoursePrerequisites(client, courseId, prereqIds);
+
+                    await client.query('COMMIT');
+                    return { ...course, prereq_ids: prereqIds };
+                } catch (error) {
+                    await client.query('ROLLBACK');
+                    throw error;
+                } finally {
+                    client.release();
+                }
             }
         );
     }
@@ -67,6 +165,10 @@ class CourseModel {
         return this.db.run(
             'delete_course',
             async () => {
+                await this.db.query_executor(
+                    `DELETE FROM course_prerequisites WHERE course_id = $1 OR prereq_id = $1;`,
+                    [id]
+                );
                 const query = `DELETE FROM courses WHERE id = $1 RETURNING *;`;
                 const params = [id];
                 const result = await this.db.query_executor(query, params);

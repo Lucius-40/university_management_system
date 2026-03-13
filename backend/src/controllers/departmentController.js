@@ -1,4 +1,4 @@
-const DepartmentModel = require('../models/departmentModel.js');
+﻿const DepartmentModel = require('../models/departmentModel.js');
 
 class DepartmentController {
     constructor() {
@@ -60,6 +60,19 @@ class DepartmentController {
             res.status(200).json({ message: "Department deleted successfully" });
         } catch (error) {
             console.error("Delete Department error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getDepartmentFullDetails = async (req, res) => {
+        try {
+            const details = await this.departmentModel.getDepartmentFullDetails(req.params.identifier);
+            if (!details) {
+                return res.status(404).json({ message: "Department not found" });
+            }
+            res.status(200).json(details);
+        } catch (error) {
+            console.error("Get Department Full Details error:", error);
             res.status(500).json({ error: error.message });
         }
     }

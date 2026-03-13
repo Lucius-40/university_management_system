@@ -11,5 +11,7 @@ router.post('/login', userController.loginUser);
 router.post('/refresh-token', userController.refreshToken);
 router.post('/logout', auth.authenticateToken, userController.logoutUser);
 router.get('/profile', auth.authenticateToken, userController.getUserProfile);
+router.get('/profile/:role/:id', auth.authenticateToken, userController.getUserProfileByRole);
+router.get('/inspect', auth.authenticateToken, userController.getEntityInspectData);
 
 module.exports = router;
