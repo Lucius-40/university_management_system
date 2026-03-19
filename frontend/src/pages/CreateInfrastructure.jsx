@@ -4,6 +4,7 @@ import { Edit, RefreshCw, Trash2 } from "lucide-react";
 import api from "../services/api";
 import Loader from "../components/Loader";
 import SearchBar from "../components/SearchBar";
+import { sortTermsDepartment } from "../utils/termSort";
 
 const cacheKeyForTab = (tab) => `infra-${tab}-list`;
 
@@ -23,17 +24,22 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   const [terms, setTerms] = useState([]);
   const [courses, setCourses] = useState([]);
   const [sections, setSections] = useState([]);
+  const [offerings, setOfferings] = useState([]);
+  const [teachers, setTeachers] = useState([]);
 
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
   const [prereqSearch, setPrereqSearch] = useState("");
+  const [offeringCourseSearch, setOfferingCourseSearch] = useState("");
 
   const [message, setMessage] = useState({ type: "", text: "" });
 
   const initialDeptForm = { code: "", name: "" };
-  const initialTermForm = { term_number: "", start_date: "", end_date: "", department_id: "" };
+  const initialTermForm = {
+    max_credit: "23",
+  };
   const initialSectionForm = { department_id: "", term_id: "", name: "" };
   const initialCourseForm = {
     course_code: "",
@@ -43,11 +49,35 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     department_id: "",
     prereq_ids: [],
   };
+  const initialOfferingForm = {
+    term_id: "",
+    department_id: "",
+    selected_course_ids: [],
+    max_capacity: "",
+    is_optional: false,
+    is_active: true,
+  };
+  const initialOfferingFilter = {
+    term_id: "",
+    department_id: "",
+    include_inactive: false,
+  };
+  const initialTeachForm = {
+    department_id: "",
+    term_id: "",
+    course_offering_id: "",
+    section_name: "",
+    teacher_id: "",
+    replace_existing: false,
+  };
 
   const [deptForm, setDeptForm] = useState(initialDeptForm);
   const [termForm, setTermForm] = useState(initialTermForm);
   const [sectionForm, setSectionForm] = useState(initialSectionForm);
   const [courseForm, setCourseForm] = useState(initialCourseForm);
+  const [offeringForm, setOfferingForm] = useState(initialOfferingForm);
+  const [offeringFilter, setOfferingFilter] = useState(initialOfferingFilter);
+  const [teachForm, setTeachForm] = useState(initialTeachForm);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -60,7 +90,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
       setIsLoading(true);
       try {
         const cacheKey = cacheKeyForTab(activeTab);
-        if (!forceRefresh) {
+        if (!forceRefresh && activeTab !== "teaches") {
           const cached = localStorage.getItem(cacheKey);
           if (cached) {
             const parsed = JSON.parse(cached);
@@ -68,6 +98,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
             setTerms(parsed.terms || []);
             setCourses(parsed.courses || []);
             setSections(parsed.sections || []);
+            setTeachers(parsed.teachers || []);
             setIsLoading(false);
             return;
           }
@@ -120,6 +151,84 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
             })
           );
         }
+
+        if (activeTab === "offering") {
+          const [termRes, deptRes, courseRes] = await Promise.all([
+            api.get("/terms"),
+            api.get("/departments"),
+            api.get("/courses"),
+          ]);
+          setTerms(termRes.data);
+          setDepartments(deptRes.data);
+          setCourses(courseRes.data);
+          setOfferings([]);
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify({
+              terms: termRes.data,
+              departments: deptRes.data,
+              courses: courseRes.data,
+            })
+          );
+        }
+
+        if (activeTab === "teaches") {
+          const [termRes, deptRes, sectionRes, teacherRes, teacherInspectRes] = await Promise.all([
+            api.get("/terms"),
+            api.get("/departments"),
+            api.get("/sections"),
+            api.get("/teachers"),
+            api.get("/users/inspect", { params: { identity: "teacher" } }),
+          ]);
+
+          const teacherRows = teacherRes.data || [];
+          const teacherInspectRows = teacherInspectRes.data || [];
+          const teacherMap = new Map();
+
+          teacherRows.forEach((teacher) => {
+            teacherMap.set(Number(teacher.user_id), { ...teacher });
+          });
+
+          teacherInspectRows.forEach((teacher) => {
+            const teacherId = Number(teacher.user_id);
+            const existing = teacherMap.get(teacherId) || {};
+            const mergedName =
+              teacher.full_name ||
+              teacher.name ||
+              existing.full_name ||
+              existing.name ||
+              "";
+
+            teacherMap.set(teacherId, {
+              ...existing,
+              ...teacher,
+              user_id: teacherId,
+              name: mergedName,
+              full_name: mergedName,
+              official_mail: teacher.official_mail || existing.official_mail,
+              appointment: teacher.appointment || existing.appointment,
+              department_id: teacher.department_id ?? existing.department_id,
+            });
+          });
+
+          const mergedTeachers = [...teacherMap.values()];
+
+          setTerms(termRes.data || []);
+          setDepartments(deptRes.data || []);
+          setSections(sectionRes.data || []);
+          setTeachers(mergedTeachers);
+          setOfferings([]);
+
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify({
+              terms: termRes.data || [],
+              departments: deptRes.data || [],
+              sections: sectionRes.data || [],
+              teachers: mergedTeachers,
+            })
+          );
+        }
       } catch (error) {
         console.error("Failed to fetch infrastructure data:", error);
       } finally {
@@ -134,7 +243,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   }, [fetchData]);
 
   const clearInfrastructureCaches = () => {
-    ["department", "term", "section", "course"].forEach((tab) => {
+    ["department", "term", "section", "course", "offering", "teaches"].forEach((tab) => {
       localStorage.removeItem(cacheKeyForTab(tab));
     });
     clearDepartmentDetailsCache();
@@ -144,10 +253,37 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     setIsEditing(false);
     setEditId(null);
     setPrereqSearch("");
+    setOfferingCourseSearch("");
     setDeptForm(initialDeptForm);
     setTermForm(initialTermForm);
     setSectionForm(initialSectionForm);
     setCourseForm(initialCourseForm);
+    setOfferingForm(initialOfferingForm);
+    setTeachForm(initialTeachForm);
+  };
+
+  const loadTeachOfferings = async (termId, departmentId = "") => {
+    const numericTermId = Number(termId);
+    if (!Number.isFinite(numericTermId) || numericTermId <= 0) {
+      setOfferings([]);
+      return;
+    }
+
+    try {
+      const response = await api.get(`/courses/offerings/term/${numericTermId}`, {
+        params: {
+          department_id: departmentId ? Number(departmentId) : undefined,
+          include_inactive: "true",
+        },
+      });
+      setOfferings(response.data?.offerings || []);
+    } catch (error) {
+      setOfferings([]);
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to load offerings for teacher assignment.",
+      });
+    }
   };
 
   const handleDeptSubmit = async (event) => {
@@ -175,29 +311,26 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
 
   const handleTermSubmit = async (event) => {
     event.preventDefault();
+
+    if (!isEditing || !editId) {
+      setMessage({ type: "error", text: "Select an existing term first." });
+      return;
+    }
+
     const payload = {
-      ...termForm,
-      start_date: termForm.start_date
-        ? new Date(termForm.start_date).toISOString().split("T")[0]
-        : "",
-      end_date: termForm.end_date ? new Date(termForm.end_date).toISOString().split("T")[0] : "",
+      max_credit: Number(termForm.max_credit),
     };
 
     try {
-      if (isEditing) {
-        await api.put(`/terms/${editId}`, payload);
-        setMessage({ type: "success", text: "Term updated successfully." });
-      } else {
-        await api.post("/terms", payload);
-        setMessage({ type: "success", text: "Term created successfully." });
-      }
+      await api.put(`/terms/${editId}`, payload);
+      setMessage({ type: "success", text: "Term max credits updated successfully." });
       clearInfrastructureCaches();
       handleResetForm();
       await fetchData(true);
     } catch (error) {
       setMessage({
         type: "error",
-        text: error.response?.data?.message || `Failed to ${isEditing ? "update" : "create"} term.`,
+        text: error.response?.data?.message || "Failed to update term max credits.",
       });
     }
   };
@@ -265,6 +398,163 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     }
   };
 
+  const loadOfferingsByFilter = async (nextFilter = offeringFilter) => {
+    if (!nextFilter.term_id) {
+      setOfferings([]);
+      return;
+    }
+
+    try {
+      const response = await api.get(`/courses/offerings/term/${nextFilter.term_id}`, {
+        params: {
+          department_id: nextFilter.department_id || undefined,
+          include_inactive: nextFilter.include_inactive ? "true" : undefined,
+        },
+      });
+      setOfferings(response.data?.offerings || []);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to load offerings for selected term.",
+      });
+    }
+  };
+
+  const handleOfferingSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!offeringForm.term_id || !offeringForm.department_id) {
+      setMessage({ type: "error", text: "Department and term are required." });
+      return;
+    }
+
+    if ((offeringForm.selected_course_ids || []).length !== 1) {
+      setMessage({ type: "error", text: "Select exactly one course." });
+      return;
+    }
+
+    const commonPayload = {
+      term_id: Number(offeringForm.term_id),
+      max_capacity: offeringForm.max_capacity === "" ? null : Number(offeringForm.max_capacity),
+      is_optional: Boolean(offeringForm.is_optional),
+      is_active: Boolean(offeringForm.is_active),
+    };
+
+    try {
+      if (isEditing) {
+        await api.put(`/courses/offerings/${editId}`, {
+          ...commonPayload,
+          course_id: Number(offeringForm.selected_course_ids[0]),
+        });
+        setMessage({ type: "success", text: "Course offering updated successfully." });
+      } else {
+        const selectedCourseId = Number(offeringForm.selected_course_ids[0]);
+        await api.post("/courses/offerings", {
+          ...commonPayload,
+          course_id: selectedCourseId,
+        });
+        setMessage({
+          type: "success",
+          text: "Course offering created successfully.",
+        });
+      }
+
+      const nextFilter = {
+        ...offeringFilter,
+        term_id: String(commonPayload.term_id),
+        department_id: String(offeringForm.department_id),
+      };
+      setOfferingFilter(nextFilter);
+      clearInfrastructureCaches();
+      handleResetForm();
+      await loadOfferingsByFilter(nextFilter);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text:
+          error.response?.data?.error ||
+          error.response?.data?.message ||
+          `Failed to ${isEditing ? "update" : "create"} course offerings.`,
+      });
+    }
+  };
+
+  const handleTeachesSubmit = async (event) => {
+    event.preventDefault();
+    setMessage({ type: "", text: "" });
+
+    if (!teachForm.term_id || !teachForm.course_offering_id || !teachForm.section_name || !teachForm.teacher_id) {
+      setMessage({
+        type: "error",
+        text: "Term, course offering, section, and teacher are required.",
+      });
+      return;
+    }
+
+    try {
+      const payload = {
+        course_offering_id: Number(teachForm.course_offering_id),
+        section_name: teachForm.section_name,
+        teacher_id: Number(teachForm.teacher_id),
+        replace_existing: Boolean(teachForm.replace_existing),
+      };
+
+      const response = await api.post("/teacher-sections/assign", payload);
+      const action = response?.data?.action || "saved";
+      setMessage({
+        type: "success",
+        text: `Teaching assignment ${action} successfully.`,
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to assign teacher to section.",
+      });
+    }
+  };
+
+  const handleOfferingEdit = (offering) => {
+    setIsEditing(true);
+    setEditId(offering.id);
+    const term = terms.find((item) => Number(item.id) === Number(offering.term_id));
+    setOfferingForm({
+      term_id: String(offering.term_id || ""),
+      department_id: term?.department_id ? String(term.department_id) : "",
+      selected_course_ids: [String(offering.course_id)],
+      max_capacity: offering.max_capacity == null ? "" : String(offering.max_capacity),
+      is_optional: Boolean(offering.is_optional),
+      is_active: offering.is_active !== false,
+    });
+  };
+
+  const handleOfferingDelete = async (offeringId) => {
+    if (!window.confirm("Delete this offering?")) return;
+
+    try {
+      await api.delete(`/courses/offerings/${offeringId}`);
+      setMessage({ type: "success", text: "Course offering deleted successfully." });
+      if (isEditing && Number(editId) === Number(offeringId)) {
+        handleResetForm();
+      }
+      await loadOfferingsByFilter(offeringFilter);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to delete offering.",
+      });
+    }
+  };
+
+  const toggleOfferingCourseSelection = (courseId) => {
+    const courseIdText = String(courseId);
+    const isAlreadySelected = (offeringForm.selected_course_ids || []).includes(courseIdText);
+
+    setOfferingForm((prev) => ({
+      ...prev,
+      selected_course_ids: isAlreadySelected ? [] : [courseIdText],
+    }));
+  };
+
   const handleEdit = (item, event) => {
     event.stopPropagation();
     setIsEditing(true);
@@ -277,10 +567,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
 
     if (activeTab === "term") {
       setTermForm({
-        term_number: item.term_number,
-        start_date: item.start_date ? new Date(item.start_date).toISOString().split("T")[0] : "",
-        end_date: item.end_date ? new Date(item.end_date).toISOString().split("T")[0] : "",
-        department_id: item.department_id,
+        max_credit: String(item.max_credit ?? "23"),
       });
     }
 
@@ -303,6 +590,10 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
         department_id: item.department_id,
         prereq_ids: (item.prereq_ids || []).map((id) => String(id)),
       });
+    }
+
+    if (activeTab === "offering") {
+      handleOfferingEdit(item);
     }
   };
 
@@ -387,7 +678,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
 
   const filteredTerms = useMemo(() => {
     const q = search.toLowerCase();
-    return terms.filter((term) => {
+    const matchingTerms = terms.filter((term) => {
       const department = departments.find((dept) => dept.id === term.department_id);
       return (
         String(term.term_number).includes(q) ||
@@ -395,7 +686,14 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
         department?.name?.toLowerCase().includes(q)
       );
     });
+
+    return sortTermsDepartment(matchingTerms, departments);
   }, [terms, departments, search]);
+
+  const sortedTerms = useMemo(
+    () => sortTermsDepartment(terms, departments),
+    [terms, departments]
+  );
 
   const filteredCourses = useMemo(() => {
     const q = search.toLowerCase();
@@ -424,6 +722,81 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
       );
     });
   }, [sections, terms, departments, search]);
+
+  const offeringCourses = useMemo(() => {
+    return [...courses].sort((left, right) =>
+      String(left.course_code || "").localeCompare(String(right.course_code || ""))
+    );
+  }, [courses]);
+
+  const filteredOfferingCourses = useMemo(() => {
+    const q = String(offeringCourseSearch || "").toLowerCase().trim();
+
+    const scoped = offeringCourses.filter((course) => {
+      if (!offeringForm.department_id) return true;
+      return Number(course.department_id) === Number(offeringForm.department_id);
+    });
+
+    if (!q) return scoped;
+
+    return scoped.filter((course) => {
+      const department = departments.find((item) => Number(item.id) === Number(course.department_id));
+      return (
+        String(course.id || "").toLowerCase().includes(q) ||
+        String(course.course_code || "").toLowerCase().includes(q) ||
+        String(course.name || "").toLowerCase().includes(q) ||
+        String(department?.code || "").toLowerCase().includes(q)
+      );
+    });
+  }, [offeringCourseSearch, offeringCourses, offeringForm.department_id, departments]);
+
+  const filteredOfferings = useMemo(() => {
+    const q = String(search || "").toLowerCase();
+    if (!q) return offerings;
+
+    return offerings.filter((offering) => {
+      const course = courses.find((item) => Number(item.id) === Number(offering.course_id));
+      const department = departments.find((item) => Number(item.id) === Number(course?.department_id));
+      return (
+        String(offering.id || "").includes(q) ||
+        String(offering.is_optional ? "optional" : "mandatory").includes(q) ||
+        String(course?.course_code || "").toLowerCase().includes(q) ||
+        String(course?.name || "").toLowerCase().includes(q) ||
+        String(department?.code || "").toLowerCase().includes(q)
+      );
+    });
+  }, [offerings, courses, departments, search]);
+
+  const teachTerms = useMemo(
+    () =>
+      sortedTerms.filter((term) =>
+        teachForm.department_id ? Number(term.department_id) === Number(teachForm.department_id) : true
+      ),
+    [sortedTerms, teachForm.department_id]
+  );
+
+  const teachSections = useMemo(
+    () =>
+      sections
+        .filter((section) => Number(section.term_id) === Number(teachForm.term_id))
+        .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""))),
+    [sections, teachForm.term_id]
+  );
+
+  const teacherWithIdentity = useMemo(() => {
+    return [...teachers]
+      .map((teacher) => {
+        const teacherId = Number(teacher.user_id);
+        const userName = teacher.name || teacher.full_name || String(teacherId);
+        const dept = departments.find((department) => Number(department.id) === Number(teacher.department_id));
+        return {
+          ...teacher,
+          display_name: userName,
+          department_code: dept?.code || "-",
+        };
+      })
+      .sort((left, right) => String(left.display_name).localeCompare(String(right.display_name)));
+  }, [teachers, departments]);
 
   const renderTable = () => {
     if (isLoading) return <Loader />;
@@ -480,62 +853,62 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
       );
     }
 
-    if (activeTab === "term") {
-      return (
-        <table className="w-full text-left bg-white rounded-lg shadow overflow-hidden">
-          <thead className="bg-gray-100 text-gray-700">
-            <tr>
-              <th className="p-3">Department</th>
-              <th className="p-3">Term</th>
-              <th className="p-3">Start Date</th>
-              <th className="p-3">End Date</th>
-              <th className="p-3 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredTerms.length === 0 ? (
-              <tr>
-                <td colSpan="5" className="p-3 text-center text-gray-500">
-                  No terms found
-                </td>
-              </tr>
-            ) : (
-              filteredTerms.map((term) => {
-                const department = departments.find((dept) => dept.id === term.department_id);
-                return (
-                  <tr key={term.id} className="border-t hover:bg-gray-50">
-                    <td className="p-3">{department ? department.code : term.department_id}</td>
-                    <td className="p-3">{term.term_number}</td>
-                    <td className="p-3">
-                      {term.start_date ? new Date(term.start_date).toLocaleDateString() : "-"}
-                    </td>
-                    <td className="p-3">
-                      {term.end_date ? new Date(term.end_date).toLocaleDateString() : "-"}
-                    </td>
-                    <td className="p-3 flex justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={(event) => handleEdit(term, event)}
-                        className="text-blue-500 hover:text-blue-700"
-                      >
-                        <Edit size={18} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => handleDelete(term.id, event)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      );
-    }
+    // if (activeTab === "term") {
+    //   return (
+    //     <table className="w-full text-left bg-white rounded-lg shadow overflow-hidden">
+    //       <thead className="bg-gray-100 text-gray-700">
+    //         <tr>
+    //           <th className="p-3">Department</th>
+    //           <th className="p-3">Term</th>
+    //           <th className="p-3">Start Date</th>
+    //           <th className="p-3">End Date</th>
+    //           <th className="p-3 text-center">Actions</th>
+    //         </tr>
+    //       </thead>
+    //       <tbody>
+    //         {filteredTerms.length === 0 ? (
+    //           <tr>
+    //             <td colSpan="5" className="p-3 text-center text-gray-500">
+    //               No terms found
+    //             </td>
+    //           </tr>
+    //         ) : (
+    //           filteredTerms.map((term) => {
+    //             const department = departments.find((dept) => dept.id === term.department_id);
+    //             return (
+    //               <tr key={term.id} className="border-t hover:bg-gray-50">
+    //                 <td className="p-3">{department ? department.code : term.department_id}</td>
+    //                 <td className="p-3">{term.term_number}</td>
+    //                 <td className="p-3">
+    //                   {term.start_date ? new Date(term.start_date).toLocaleDateString() : "-"}
+    //                 </td>
+    //                 <td className="p-3">
+    //                   {term.end_date ? new Date(term.end_date).toLocaleDateString() : "-"}
+    //                 </td>
+    //                 <td className="p-3 flex justify-center gap-3">
+    //                   <button
+    //                     type="button"
+    //                     onClick={(event) => handleEdit(term, event)}
+    //                     className="text-blue-500 hover:text-blue-700"
+    //                   >
+    //                     <Edit size={18} />
+    //                   </button>
+    //                   <button
+    //                     type="button"
+    //                     onClick={(event) => handleDelete(term.id, event)}
+    //                     className="text-red-500 hover:text-red-700"
+    //                   >
+    //                     <Trash2 size={18} />
+    //                   </button>
+    //                 </td>
+    //               </tr>
+    //             );
+    //           })
+    //         )}
+    //       </tbody>
+    //     </table>
+    //   );
+    // }
 
     if (activeTab === "section") {
       return (
@@ -741,7 +1114,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
         {activeTab === "term" && (
           <form onSubmit={handleTermSubmit} className="space-y-4">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">{isEditing ? "Edit Term" : "Create New Term"}</h2>
+              <h2 className="text-xl font-semibold">Edit Term Max Credits</h2>
               {isEditing && (
                 <button
                   type="button"
@@ -752,52 +1125,59 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Department</label>
+
+            <div className="rounded border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+              Terms are created from System State initialization. Choose an existing term and update only
+              max credits from here.
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <div className="col-span-2">
+                <label className="block text-sm font-medium mb-1">Select Existing Term</label>
                 <select
                   required
-                  value={termForm.department_id}
-                  onChange={(event) =>
-                    setTermForm({ ...termForm, department_id: event.target.value })
-                  }
+                  value={typeof editId === "number" || typeof editId === "string" ? editId : ""}
+                  onChange={(event) => {
+                    const selectedId = Number(event.target.value);
+                    const selectedTerm = terms.find((term) => Number(term.id) === selectedId);
+
+                    if (!selectedTerm) {
+                      setIsEditing(false);
+                      setEditId(null);
+                      setTermForm(initialTermForm);
+                      return;
+                    }
+
+                    setIsEditing(true);
+                    setEditId(selectedTerm.id);
+                    setTermForm({
+                      max_credit: String(selectedTerm.max_credit ?? "23"),
+                    });
+                  }}
                   className="w-full p-2 border rounded"
                 >
-                  <option value="">Select Department</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.code} - {department.name}
-                    </option>
-                  ))}
+                  <option value="">Select Department + Term</option>
+                  {sortedTerms.map((term) => {
+                    const department = departments.find(
+                      (departmentItem) => Number(departmentItem.id) === Number(term.department_id)
+                    );
+                    return (
+                      <option key={term.id} value={term.id}>
+                        {department ? department.code : `Department ${term.department_id}`} - Term {term.term_number}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Term Number</label>
+                <label className="block text-sm font-medium mb-1">Max Credits</label>
                 <input
                   required
+                  min="0.5"
+                  step="0.5"
                   type="number"
-                  value={termForm.term_number}
-                  onChange={(event) =>
-                    setTermForm({ ...termForm, term_number: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Start Date</label>
-                <input
-                  type="date"
-                  value={termForm.start_date}
-                  onChange={(event) => setTermForm({ ...termForm, start_date: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={termForm.end_date}
-                  onChange={(event) => setTermForm({ ...termForm, end_date: event.target.value })}
+                  value={termForm.max_credit}
+                  onChange={(event) => setTermForm({ ...termForm, max_credit: event.target.value })}
                   className="w-full p-2 border rounded"
                 />
               </div>
@@ -806,7 +1186,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
               type="submit"
               className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
             >
-              {isEditing ? "Update Term" : "Create Term"}
+              Update Max Credits
             </button>
           </form>
         )}
@@ -991,7 +1371,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
                   className="w-full p-2 border rounded"
                 >
                   <option value="">Select Term</option>
-                  {terms
+                  {sortedTerms
                     .filter((term) =>
                       sectionForm.department_id
                         ? Number(term.department_id) === Number(sectionForm.department_id)
@@ -1021,6 +1401,441 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
               className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
             >
               {isEditing ? "Update Section" : "Create Section"}
+            </button>
+          </form>
+        )}
+
+        {activeTab === "offering" && (
+          <div className="space-y-8">
+            <form onSubmit={handleOfferingSubmit} className="space-y-4">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">
+                  {isEditing ? "Edit Course Offering" : "Create Course Offerings"}
+                </h2>
+                {isEditing && (
+                  <button
+                    type="button"
+                    onClick={handleResetForm}
+                    className="text-sm text-gray-500 hover:underline"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Department</label>
+                  <select
+                    required
+                    value={offeringForm.department_id}
+                    onChange={(event) =>
+                      setOfferingForm((prev) => ({
+                        ...prev,
+                        department_id: event.target.value,
+                        term_id: "",
+                        selected_course_ids: [],
+                      }))
+                    }
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">Select Department</option>
+                    {departments.map((department) => (
+                      <option key={department.id} value={department.id}>
+                        {department.code} - {department.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Term</label>
+                  <select
+                    required
+                    value={offeringForm.term_id}
+                    onChange={(event) =>
+                      setOfferingForm((prev) => ({ ...prev, term_id: event.target.value }))
+                    }
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">Select Term</option>
+                    {sortedTerms
+                      .filter((term) =>
+                        offeringForm.department_id
+                          ? Number(term.department_id) === Number(offeringForm.department_id)
+                          : true
+                      )
+                      .map((term) => (
+                        <option key={term.id} value={term.id}>
+                          Term {term.term_number}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-1">
+                    Course {isEditing ? "(single for edit)" : "(select one)"}
+                  </label>
+                  <SearchBar
+                    value={offeringCourseSearch}
+                    onChange={(event) => setOfferingCourseSearch(event.target.value)}
+                    placeholder="Find by id, code, name, or department"
+                    className="mb-2"
+                  />
+                  <div className="border rounded p-2 max-h-52 overflow-auto space-y-2">
+                    {filteredOfferingCourses.length === 0 ? (
+                      <p className="text-sm text-gray-500 px-1">No courses available.</p>
+                    ) : (
+                      filteredOfferingCourses.map((course) => {
+                        const checked = (offeringForm.selected_course_ids || []).includes(String(course.id));
+                        const courseDepartment = departments.find(
+                          (department) => Number(department.id) === Number(course.department_id)
+                        );
+                        return (
+                          <label
+                            key={course.id}
+                            className="flex items-center gap-2 text-sm text-gray-700 hover:bg-gray-50 rounded px-1 py-1"
+                          >
+                            <input
+                              type="radio"
+                              name="offering-course-selection"
+                              checked={checked}
+                              onChange={() => toggleOfferingCourseSelection(course.id)}
+                            />
+                            <span>
+                              {course.course_code} - {course.name}
+                              {courseDepartment ? ` (${courseDepartment.code})` : ""}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Selected: {(offeringForm.selected_course_ids || []).length}/1.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Max Capacity</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={offeringForm.max_capacity}
+                    onChange={(event) =>
+                      setOfferingForm((prev) => ({ ...prev, max_capacity: event.target.value }))
+                    }
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="offering-is-optional"
+                    type="checkbox"
+                    checked={Boolean(offeringForm.is_optional)}
+                    onChange={(event) =>
+                      setOfferingForm((prev) => ({ ...prev, is_optional: event.target.checked }))
+                    }
+                  />
+                  <label htmlFor="offering-is-optional" className="text-sm font-medium text-gray-700">
+                    Optional Course
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="offering-is-active"
+                    type="checkbox"
+                    checked={Boolean(offeringForm.is_active)}
+                    onChange={(event) =>
+                      setOfferingForm((prev) => ({ ...prev, is_active: event.target.checked }))
+                    }
+                  />
+                  <label htmlFor="offering-is-active" className="text-sm font-medium text-gray-700">
+                    Active
+                  </label>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
+              >
+                {isEditing ? "Update Offering" : "Create Offerings"}
+              </button>
+            </form>
+
+            <div className="border-t pt-6 space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800">Offering Inspection</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <select
+                  value={offeringFilter.department_id}
+                  onChange={(event) =>
+                    setOfferingFilter((prev) => ({
+                      ...prev,
+                      department_id: event.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.code} - {department.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={offeringFilter.term_id}
+                  onChange={(event) =>
+                    setOfferingFilter((prev) => ({
+                      ...prev,
+                      term_id: event.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">Select Term</option>
+                  {sortedTerms
+                    .filter((term) =>
+                      offeringFilter.department_id
+                        ? Number(term.department_id) === Number(offeringFilter.department_id)
+                        : true
+                    )
+                    .map((term) => (
+                      <option key={term.id} value={term.id}>
+                        Term {term.term_number}
+                      </option>
+                    ))}
+                </select>
+
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(offeringFilter.include_inactive)}
+                    onChange={(event) =>
+                      setOfferingFilter((prev) => ({
+                        ...prev,
+                        include_inactive: event.target.checked,
+                      }))
+                    }
+                  />
+                  Include Inactive
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => loadOfferingsByFilter(offeringFilter)}
+                  className="bg-slate-700 text-white px-4 py-2 rounded hover:bg-slate-800"
+                >
+                  Load Offerings
+                </button>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="p-3 text-left">ID</th>
+                      <th className="p-3 text-left">Course</th>
+                      <th className="p-3 text-left">Optional</th>
+                      <th className="p-3 text-left">Max Capacity</th>
+                      <th className="p-3 text-left">Active</th>
+                      <th className="p-3 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredOfferings.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="p-3 text-center text-gray-500">
+                          No offerings found. Select term and load.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredOfferings.map((offering) => {
+                        const course = courses.find((item) => Number(item.id) === Number(offering.course_id));
+                        return (
+                          <tr key={offering.id} className="border-t hover:bg-gray-50">
+                            <td className="p-3">{offering.id}</td>
+                            <td className="p-3">
+                              {course ? `${course.course_code} - ${course.name}` : `Course #${offering.course_id}`}
+                            </td>
+                            <td className="p-3">{offering.is_optional ? "Yes" : "No"}</td>
+                            <td className="p-3">{offering.max_capacity ?? "-"}</td>
+                            <td className="p-3">{offering.is_active ? "Yes" : "No"}</td>
+                            <td className="p-3 flex gap-3">
+                              <button
+                                type="button"
+                                onClick={() => handleOfferingEdit(offering)}
+                                className="text-blue-500 hover:text-blue-700"
+                              >
+                                <Edit size={18} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOfferingDelete(offering.id)}
+                                className="text-red-500 hover:text-red-700"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "teaches" && (
+          <form onSubmit={handleTeachesSubmit} className="space-y-4">
+            <h2 className="text-xl font-semibold mb-4">Assign Teacher To Section</h2>
+            <p className="text-sm text-gray-600">
+              Create one teaching assignment at a time. Each offering + section can only have one teacher.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Department (Filter)</label>
+                <select
+                  value={teachForm.department_id}
+                  onChange={async (event) => {
+                    const departmentId = event.target.value;
+                    const nextTermId = "";
+                    setTeachForm((prev) => ({
+                      ...prev,
+                      department_id: departmentId,
+                      term_id: nextTermId,
+                      course_offering_id: "",
+                      section_name: "",
+                    }));
+                    setOfferings([]);
+                  }}
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.code} - {department.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Term</label>
+                <select
+                  required
+                  value={teachForm.term_id}
+                  onChange={async (event) => {
+                    const termId = event.target.value;
+                    setTeachForm((prev) => ({
+                      ...prev,
+                      term_id: termId,
+                      course_offering_id: "",
+                      section_name: "",
+                    }));
+                    await loadTeachOfferings(termId, teachForm.department_id);
+                  }}
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">Select Term</option>
+                  {teachTerms.map((term) => (
+                    <option key={term.id} value={term.id}>
+                      Term {term.term_number}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Course Offering</label>
+                <select
+                  required
+                  value={teachForm.course_offering_id}
+                  onChange={(event) =>
+                    setTeachForm((prev) => ({ ...prev, course_offering_id: event.target.value }))
+                  }
+                  className="w-full p-2 border rounded"
+                  disabled={!teachForm.term_id}
+                >
+                  <option value="">Select Offering</option>
+                  {offerings.map((offering) => (
+                    <option key={offering.id} value={offering.id}>
+                      #{offering.id} - {offering.course_code} - {offering.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Section</label>
+                <select
+                  required
+                  value={teachForm.section_name}
+                  onChange={(event) =>
+                    setTeachForm((prev) => ({ ...prev, section_name: event.target.value }))
+                  }
+                  className="w-full p-2 border rounded"
+                  disabled={!teachForm.term_id}
+                >
+                  <option value="">Select Section</option>
+                  {teachSections.map((section) => (
+                    <option key={`${section.term_id}-${section.name}`} value={section.name}>
+                      {section.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium mb-1">Teacher</label>
+                <select
+                  required
+                  value={teachForm.teacher_id}
+                  onChange={(event) =>
+                    setTeachForm((prev) => ({ ...prev, teacher_id: event.target.value }))
+                  }
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">Select Teacher</option>
+                  {teacherWithIdentity.map((teacher) => (
+                    <option key={teacher.user_id} value={teacher.user_id}>
+                      {teacher.display_name} ({teacher.appointment || "Teacher"}) [{teacher.department_code}]
+                    </option>
+                  ))}
+                </select>
+                {/* <p className="mt-1 text-xs text-gray-500">
+                  Cross-department teaching is allowed.
+                </p> */}
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(teachForm.replace_existing)}
+                    onChange={(event) =>
+                      setTeachForm((prev) => ({ ...prev, replace_existing: event.target.checked }))
+                    }
+                  />
+                  Replace existing assignment for the same offering + section
+                </label>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
+            >
+              Assign Teacher
             </button>
           </form>
         )}

@@ -25,7 +25,7 @@ const Login = () => {
       localStorage.setItem('user', JSON.stringify(user));
 
       if (user.role === 'system') {
-        navigate('/admin/dashboard');
+        navigate('/admin/dashboard/dashboard');
       } else {
         setError('Unauthorized: Academic portals are separate.');
       }

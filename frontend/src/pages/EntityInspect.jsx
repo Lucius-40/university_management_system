@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import api from "../services/api";
 import Loader from "../components/Loader";
+import { formatDateDisplay } from "../utils/dateFormat";
 
 const EMPTY_FILTERS = {
   identity: "student",
@@ -264,7 +265,7 @@ const EntityInspect = () => {
                     <td className="p-3">{row.term_number ? `Term ${row.term_number}` : "-"}</td>
                     <td className="p-3">{row.section_names || "-"}</td>
                     <td className="p-3">{row.mobile_number || "-"}</td>
-                    <td className="p-3">{row.birth_date ? String(row.birth_date).slice(0, 10) : "-"}</td>
+                    <td className="p-3">{formatDateDisplay(row.birth_date)}</td>
                     <td className="p-3">{row.appointment || "-"}</td>
                   </tr>
                 ))

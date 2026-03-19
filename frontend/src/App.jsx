@@ -33,6 +33,15 @@ function App() {
               </ProtectedRoute>
             } 
           />
+
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['system']}>
+                <Navigate to="/admin/dashboard/dashboard" replace />
+              </ProtectedRoute>
+            }
+          />
           
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
@@ -40,7 +49,7 @@ function App() {
       </BrowserRouter>
 
       {isNetworkLoading && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
           <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-lg">
             <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
             <span className="text-sm font-medium text-slate-700">Loading...</span>

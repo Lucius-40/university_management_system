@@ -9,13 +9,13 @@ class TermModel {
         return this.db.run(
             'create_term',
             async () => {
-                const { term_number, start_date, end_date, department_id } = payload;
+                const { term_number, start_date, end_date, department_id, max_credit } = payload;
                 const query = `
-                    INSERT INTO terms (term_number, start_date, end_date, department_id)
-                    VALUES ($1, $2, $3, $4)
+                    INSERT INTO terms (term_number, start_date, end_date, department_id, max_credit)
+                    VALUES ($1, $2, $3, $4, COALESCE($5, 23.0))
                     RETURNING *;
                 `;
-                const params = [term_number, start_date, end_date, department_id];
+                const params = [term_number, start_date, end_date, department_id, max_credit];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
             }
@@ -49,14 +49,16 @@ class TermModel {
         return this.db.run(
             'update_term',
             async () => {
-                const { term_number, start_date, end_date, department_id } = payload;
+                const { term_number, department_id, max_credit } = payload;
                 const query = `
                     UPDATE terms
-                    SET term_number = $2, start_date = $3, end_date = $4, department_id = $5
+                    SET term_number = COALESCE($2, term_number),
+                        department_id = COALESCE($3, department_id),
+                        max_credit = COALESCE($4, max_credit)
                     WHERE id = $1
                     RETURNING *;
                 `;
-                const params = [id, term_number, start_date, end_date, department_id];
+                const params = [id, term_number, department_id, max_credit];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
             }

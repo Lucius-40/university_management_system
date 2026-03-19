@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, BookOpen, GraduationCap, RefreshCw, Users } from "lucide-react";
+import { ArrowLeft, BookOpen, GraduationCap, RefreshCw, Users, X } from "lucide-react";
 import api from "../services/api";
 import Loader from "../components/Loader";
 import SearchBar from "../components/SearchBar";
+import { formatDateDisplay } from "../utils/dateFormat";
 
 const INITIAL_LIMIT = 10;
 const EMPTY_ARRAY = [];
@@ -36,8 +37,31 @@ const DepartmentDetails = () => {
   const [showAllCourses, setShowAllCourses] = useState(false);
   const [showAllTeachers, setShowAllTeachers] = useState(false);
   const [expandedTerms, setExpandedTerms] = useState({});
+  const [headForm, setHeadForm] = useState({ teacher_id: "", start_date: "" });
+  const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
+  const [headMessage, setHeadMessage] = useState({ type: "", text: "" });
+  const [headSaving, setHeadSaving] = useState(false);
+  const [entryEndDates, setEntryEndDates] = useState({});
+  const [currentDepartmentHead, setCurrentDepartmentHead] = useState(null);
+  const [departmentHeadHistory, setDepartmentHeadHistory] = useState(EMPTY_ARRAY);
 
   const cacheKey = `dept-details-${identifier}`;
+
+  const fetchHeadData = useCallback(async (deptId) => {
+    if (!deptId) {
+      setCurrentDepartmentHead(null);
+      setDepartmentHeadHistory(EMPTY_ARRAY);
+      return;
+    }
+
+    const [currentRes, historyRes] = await Promise.all([
+      api.get(`/departments/${deptId}/heads/current`),
+      api.get(`/departments/${deptId}/heads/history`),
+    ]);
+
+    setCurrentDepartmentHead(currentRes.data?.current_head || null);
+    setDepartmentHeadHistory(historyRes.data?.history || EMPTY_ARRAY);
+  }, []);
 
   const fetchDetails = useCallback(async (forceRefresh = false) => {
     setIsLoading(true);
@@ -47,7 +71,9 @@ const DepartmentDetails = () => {
       if (!forceRefresh) {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
-          setPayload(JSON.parse(cached));
+          const cachedPayload = JSON.parse(cached);
+          setPayload(cachedPayload);
+          await fetchHeadData(Number(cachedPayload?.department?.id || 0));
           setIsLoading(false);
           return;
         }
@@ -56,13 +82,14 @@ const DepartmentDetails = () => {
       const response = await api.get(`/departments/details/${encodeURIComponent(identifier)}`);
       setPayload(response.data);
       localStorage.setItem(cacheKey, JSON.stringify(response.data));
+      await fetchHeadData(Number(response.data?.department?.id || 0));
     } catch (requestError) {
       console.error("Failed to load department details:", requestError);
       setError(requestError.response?.data?.message || "Failed to load department details.");
     } finally {
       setIsLoading(false);
     }
-  }, [cacheKey, identifier]);
+  }, [cacheKey, fetchHeadData, identifier]);
 
   useEffect(() => {
     setShowAllCourses(false);
@@ -76,6 +103,7 @@ const DepartmentDetails = () => {
   const allTeachers = payload?.teachers ?? EMPTY_ARRAY;
   const allStudents = payload?.students ?? EMPTY_ARRAY;
   const allStudentsByTerm = payload?.students_by_term ?? EMPTY_ARRAY;
+  const departmentId = Number(department?.id || 0);
 
   const filteredCourses = useMemo(() => {
     const q = courseSearch.toLowerCase();
@@ -123,6 +151,76 @@ const DepartmentDetails = () => {
   const visibleCourses = showAllCourses ? filteredCourses : filteredCourses.slice(0, INITIAL_LIMIT);
   const visibleTeachers = showAllTeachers ? filteredTeachers : filteredTeachers.slice(0, INITIAL_LIMIT);
 
+  const availableHeadTeachers = useMemo(() => {
+    return [...allTeachers].sort((left, right) =>
+      String(left.name || "").localeCompare(String(right.name || ""))
+    );
+  }, [allTeachers]);
+
+  const handleHeadAssign = async (event) => {
+    event.preventDefault();
+
+    if (!departmentId) return;
+
+    if (!headForm.teacher_id) {
+      setHeadMessage({ type: "error", text: "Teacher is required." });
+      return;
+    }
+
+    try {
+      setHeadSaving(true);
+      setHeadMessage({ type: "", text: "" });
+      const payloadToSend = {
+        teacher_id: Number(headForm.teacher_id),
+      };
+
+      if (headForm.start_date) {
+        payloadToSend.start_date = headForm.start_date;
+      }
+
+      await api.post(`/departments/${departmentId}/heads`, payloadToSend);
+
+      setHeadForm({ teacher_id: "", start_date: "" });
+      setIsReassignModalOpen(false);
+      setHeadMessage({ type: "success", text: "Department head assigned successfully." });
+      await fetchDetails(true);
+    } catch (requestError) {
+      setHeadMessage({
+        type: "error",
+        text: requestError.response?.data?.error || "Failed to assign department head.",
+      });
+    } finally {
+      setHeadSaving(false);
+    }
+  };
+
+  const handleEndDateUpdate = async (entryId) => {
+    if (!departmentId) return;
+
+    const endDate = entryEndDates[entryId];
+    if (!endDate) {
+      setHeadMessage({ type: "error", text: "Please select an end date first." });
+      return;
+    }
+
+    try {
+      setHeadSaving(true);
+      setHeadMessage({ type: "", text: "" });
+      await api.patch(`/departments/${departmentId}/heads/${entryId}`, {
+        end_date: endDate,
+      });
+      setHeadMessage({ type: "success", text: "Department head timeline updated." });
+      await fetchDetails(true);
+    } catch (requestError) {
+      setHeadMessage({
+        type: "error",
+        text: requestError.response?.data?.error || "Failed to update department head timeline.",
+      });
+    } finally {
+      setHeadSaving(false);
+    }
+  };
+
   if (isLoading) return <Loader />;
 
   if (error) {
@@ -160,7 +258,36 @@ const DepartmentDetails = () => {
             <ArrowLeft size={16} /> Back
           </button>
           <h1 className="mt-2 text-3xl font-bold text-gray-800">{department.name}</h1>
-          <p className="text-gray-500">Code: {department.code}</p>
+          <div className="mt-1 flex flex-col gap-2 text-gray-500">
+            <p>Code: {department.code}</p>
+            <div className="flex items-center justify-between gap-3 rounded px-3 py-2 text-sm text-slate-700 w-fit">
+              <div className="min-w-0">
+                <span className="font-medium">Head:</span>{" "}
+                {currentDepartmentHead ? (
+                  <>
+                    <span className="font-semibold text-slate-900">{currentDepartmentHead.name}</span>
+                    <span className="ml-2 text-slate-500">since {formatDateDisplay(currentDepartmentHead.start_date)}</span>
+                  </>
+                ) : (
+                  <span className="text-slate-500">Not assigned</span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="rounded border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                onClick={() => {
+                  setHeadMessage({ type: "", text: "" });
+                  setHeadForm({
+                    teacher_id: currentDepartmentHead?.teacher_id ? String(currentDepartmentHead.teacher_id) : "",
+                    start_date: "",
+                  });
+                  setIsReassignModalOpen(true);
+                }}
+              >
+                Reassign
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-start gap-3">
@@ -187,6 +314,84 @@ const DepartmentDetails = () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* <section className="bg-white border rounded-lg p-5 xl:col-span-3 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-lg text-gray-800">Department Head Timeline</h2>
+              <p className="text-sm text-gray-500">
+                Current head always has no end date. Use Reassign to set a new current head.
+              </p>
+            </div>
+          </div>
+
+          {headMessage.text && (
+            <div
+              className={`rounded border px-3 py-2 text-sm ${
+                headMessage.type === "success"
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : "border-red-200 bg-red-50 text-red-700"
+              }`}
+            >
+              {headMessage.text}
+            </div>
+          )}
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Teacher</th>
+                  <th className="p-3 text-left">Start Date</th>
+                  <th className="p-3 text-left">End Date</th>
+                  <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Change End Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...(currentDepartmentHead ? [currentDepartmentHead] : []), ...departmentHeadHistory].length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="p-3 text-center text-gray-500">
+                      No department head timeline records found.
+                    </td>
+                  </tr>
+                ) : (
+                  [...(currentDepartmentHead ? [currentDepartmentHead] : []), ...departmentHeadHistory].map((entry) => {
+                    const isActive = !entry.end_date;
+                    return (
+                      <tr key={entry.id} className="border-t">
+                        <td className="p-3">{entry.name}</td>
+                        <td className="p-3">{String(entry.start_date || "-").slice(0, 10)}</td>
+                        <td className="p-3">{entry.end_date ? String(entry.end_date).slice(0, 10) : "-"}</td>
+                        <td className="p-3">{isActive ? "Current" : "Previous"}</td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="date"
+                              value={entryEndDates[entry.id] || ""}
+                              onChange={(event) =>
+                                setEntryEndDates((prev) => ({ ...prev, [entry.id]: event.target.value }))
+                              }
+                              className="p-2 border rounded"
+                              disabled={headSaving}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleEndDateUpdate(entry.id)}
+                              disabled={headSaving}
+                              className="rounded border px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed"
+                            >
+                              Update
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section> */}
+
         <section className="bg-white border rounded-lg p-5 flex flex-col">
           <div className="flex items-center gap-2 mb-4 text-blue-700">
             <BookOpen size={18} />
@@ -200,7 +405,7 @@ const DepartmentDetails = () => {
             className="mb-4"
           />
 
-          <div className="border rounded-md overflow-auto max-h-[520px]">
+          <div className="border rounded-md overflow-auto max-h-130">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-700 sticky top-0">
                 <tr>
@@ -255,7 +460,7 @@ const DepartmentDetails = () => {
             className="mb-4"
           />
 
-          <div className="border rounded-md overflow-auto max-h-[520px]">
+          <div className="border rounded-md overflow-auto max-h-130">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-700 sticky top-0">
                 <tr>
@@ -312,7 +517,7 @@ const DepartmentDetails = () => {
             className="mb-4"
           />
 
-          <div className="space-y-4 overflow-auto max-h-[520px] pr-1">
+          <div className="space-y-4 overflow-auto max-h-130 pr-1">
             {filteredStudentsByTerm.length === 0 ? (
               <div className="text-center text-sm text-gray-500 border rounded-md p-3">No students found</div>
             ) : (
@@ -372,6 +577,84 @@ const DepartmentDetails = () => {
           </div>
         </section>
       </div>
+
+      {isReassignModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg border bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Reassign Department Head</h3>
+              <button
+                type="button"
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                onClick={() => {
+                  setIsReassignModalOpen(false);
+                  setHeadForm({ teacher_id: "", start_date: "" });
+                }}
+                disabled={headSaving}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleHeadAssign} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Teacher</label>
+                <select
+                  required
+                  value={headForm.teacher_id}
+                  onChange={(event) => setHeadForm((prev) => ({ ...prev, teacher_id: event.target.value }))}
+                  className="w-full p-2 border rounded"
+                  disabled={headSaving}
+                >
+                  <option value="">Select Teacher</option>
+                  {availableHeadTeachers.map((teacher) => (
+                    <option key={teacher.user_id} value={teacher.user_id}>
+                      {teacher.name} ({teacher.appointment || "Teacher"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Start Date (optional)
+                </label>
+                <input
+                  type="date"
+                  value={headForm.start_date}
+                  onChange={(event) => setHeadForm((prev) => ({ ...prev, start_date: event.target.value }))}
+                  className="w-full p-2 border rounded"
+                  disabled={headSaving}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  If empty, current date will be used automatically.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  className="rounded border px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  onClick={() => {
+                    setIsReassignModalOpen(false);
+                    setHeadForm({ teacher_id: "", start_date: "" });
+                  }}
+                  disabled={headSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={headSaving}
+                  className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  {headSaving ? "Saving..." : "Confirm Reassign"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

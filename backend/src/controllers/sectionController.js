@@ -70,6 +70,17 @@ class SectionController {
             res.status(500).json({ error: error.message });
         }
     }
+
+    assignStudentsByRollRange = async (req, res) => {
+        try {
+            const summary = await this.sectionModel.assignStudentsToSectionByRollRange(req.body || {});
+            res.status(200).json(summary);
+        } catch (error) {
+            console.error("Assign Students By Roll Range error:", error);
+            const statusCode = Number(error.statusCode) || 500;
+            res.status(statusCode).json({ error: error.message });
+        }
+    }
 }
 
 module.exports = SectionController;

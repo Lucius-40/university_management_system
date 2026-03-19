@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import Loader from "../components/Loader";
 import SearchBar from "../components/SearchBar";
+import { formatDateDisplay } from "../utils/dateFormat";
+import { sortTermsDepartment } from "../utils/termSort";
 
 const TABS = [
   "departments",
@@ -12,6 +14,7 @@ const TABS = [
   "sections",
   "students",
   "teachers",
+  "dues",
   "initial-credential-check",
 ];
 
@@ -22,6 +25,7 @@ const INITIAL_FILTERS = {
   sections: { search: "", department_id: "", term_id: "" },
   students: { search: "", department_code: "", batch: "", term_id: "", section: "" },
   teachers: { search: "", department_code: "", appointment: "" },
+  dues: { search: "", rule_id: "", student_id: "" },
   initialCredentialCheck: { search: "", status: "" },
 };
 
@@ -39,6 +43,12 @@ const InspectionPage = ({ initialTab = "departments" }) => {
   const [sections, setSections] = useState([]);
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [dues, setDues] = useState([]);
+  const [dueRules, setDueRules] = useState([]);
+  const [dueRulePreview, setDueRulePreview] = useState(null);
+  const [duePreviewLoading, setDuePreviewLoading] = useState(false);
+  const [studentDueHistory, setStudentDueHistory] = useState([]);
+  const [studentDueHistoryLoading, setStudentDueHistoryLoading] = useState(false);
   const [initialCredentials, setInitialCredentials] = useState([]);
 
   const loadData = useCallback(async () => {
@@ -53,6 +63,8 @@ const InspectionPage = ({ initialTab = "departments" }) => {
         sectionResponse,
         studentResponse,
         teacherResponse,
+        duesResponse,
+        dueRulesResponse,
         credentialsResponse,
       ] =
         await Promise.all([
@@ -62,6 +74,8 @@ const InspectionPage = ({ initialTab = "departments" }) => {
           api.get("/sections"),
           api.get("/users/inspect", { params: { identity: "student" } }),
           api.get("/users/inspect", { params: { identity: "teacher" } }),
+          api.get("/payments/dues"),
+          api.get("/payments/rules"),
           api.get("/credentials"),
         ]);
 
@@ -71,6 +85,8 @@ const InspectionPage = ({ initialTab = "departments" }) => {
       setSections(sectionResponse.data || []);
       setStudents(studentResponse.data || []);
       setTeachers(teacherResponse.data || []);
+      setDues(duesResponse.data || []);
+      setDueRules(dueRulesResponse.data || []);
       setInitialCredentials(credentialsResponse.data || []);
     } catch (requestError) {
       console.error("Failed to load inspection data:", requestError);
@@ -111,7 +127,7 @@ const InspectionPage = ({ initialTab = "departments" }) => {
 
   const filteredTerms = useMemo(() => {
     const q = filters.terms.search.toLowerCase();
-    return terms.filter((term) => {
+    const matchingTerms = terms.filter((term) => {
       const department = departments.find((dept) => Number(dept.id) === Number(term.department_id));
       const matchesDepartment =
         !filters.terms.department_id || Number(term.department_id) === Number(filters.terms.department_id);
@@ -123,7 +139,14 @@ const InspectionPage = ({ initialTab = "departments" }) => {
 
       return matchesDepartment && matchesSearch;
     });
+
+    return sortTermsDepartment(matchingTerms, departments);
   }, [terms, departments, filters.terms.search, filters.terms.department_id]);
+
+  const sortedTerms = useMemo(
+    () => sortTermsDepartment(terms, departments),
+    [terms, departments]
+  );
 
   const filteredCourses = useMemo(() => {
     const q = filters.courses.search.toLowerCase();
@@ -251,6 +274,68 @@ const InspectionPage = ({ initialTab = "departments" }) => {
     });
   }, [initialCredentials, filters.initialCredentialCheck]);
 
+  const filteredDues = useMemo(() => {
+    const q = String(filters.dues.search || "").toLowerCase();
+
+    return dues.filter((due) => {
+      const matchesSearch =
+        String(due.name || "").toLowerCase().includes(q) ||
+        String(due.description || "").toLowerCase().includes(q) ||
+        String(due.amount || "").toLowerCase().includes(q);
+
+      return matchesSearch;
+    });
+  }, [dues, filters.dues.search]);
+
+  const filteredDueRules = useMemo(() => {
+    const q = String(filters.dues.search || "").toLowerCase();
+
+    return dueRules.filter((rule) => {
+      const matchesSearch =
+        String(rule.name || "").toLowerCase().includes(q) ||
+        String(rule.due_name || "").toLowerCase().includes(q) ||
+        String(rule.frequency || "").toLowerCase().includes(q);
+
+      return matchesSearch;
+    });
+  }, [dueRules, filters.dues.search]);
+
+  const loadRulePreview = useCallback(async (ruleId) => {
+    if (!ruleId) {
+      setDueRulePreview(null);
+      return;
+    }
+
+    setDuePreviewLoading(true);
+    try {
+      const response = await api.get(`/payments/rules/${ruleId}/preview`);
+      setDueRulePreview(response.data || null);
+    } catch (requestError) {
+      console.error("Failed to load due rule preview:", requestError);
+      setError(requestError.response?.data?.error || "Failed to load due rule preview.");
+    } finally {
+      setDuePreviewLoading(false);
+    }
+  }, []);
+
+  const loadStudentDueHistory = useCallback(async (studentId) => {
+    if (!studentId) {
+      setStudentDueHistory([]);
+      return;
+    }
+
+    setStudentDueHistoryLoading(true);
+    try {
+      const response = await api.get(`/payments/student/${studentId}`);
+      setStudentDueHistory(response.data || []);
+    } catch (requestError) {
+      console.error("Failed to load student due history:", requestError);
+      setError(requestError.response?.data?.error || "Failed to load student due history.");
+    } finally {
+      setStudentDueHistoryLoading(false);
+    }
+  }, []);
+
 //   const renderTabs = () => (
 //     <div className="flex flex-wrap gap-2 mb-4">
 //       {TABS.map((tab) => (
@@ -343,17 +428,31 @@ const InspectionPage = ({ initialTab = "departments" }) => {
               <th className="p-3 text-left">Term</th>
               <th className="p-3 text-left">Start Date</th>
               <th className="p-3 text-left">End Date</th>
+              <th className="p-3 text-left">Max Credits</th>
             </tr>
           </thead>
           <tbody>
             {filteredTerms.map((row) => {
               const department = departments.find((departmentRow) => Number(departmentRow.id) === Number(row.department_id));
               return (
-                <tr key={row.id} className="border-t">
+                <tr
+                  key={row.id}
+                  className="border-t cursor-pointer hover:bg-slate-50"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/admin/dashboard/terms/${row.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/admin/dashboard/terms/${row.id}`);
+                    }
+                  }}
+                >
                   <td className="p-3">{department ? department.code : row.department_id}</td>
                   <td className="p-3">{row.term_number}</td>
-                  <td className="p-3">{row.start_date ? String(row.start_date).slice(0, 10) : "-"}</td>
-                  <td className="p-3">{row.end_date ? String(row.end_date).slice(0, 10) : "-"}</td>
+                  <td className="p-3">{formatDateDisplay(row.start_date)}</td>
+                  <td className="p-3">{formatDateDisplay(row.end_date)}</td>
+                  <td className="p-3">{row.max_credit ?? "-"}</td>
                 </tr>
               );
             })}
@@ -458,7 +557,7 @@ const InspectionPage = ({ initialTab = "departments" }) => {
           className="w-full p-2 border rounded"
         >
           <option value="">All Terms</option>
-          {terms
+          {sortedTerms
             .filter((term) =>
               filters.sections.department_id
                 ? Number(term.department_id) === Number(filters.sections.department_id)
@@ -536,7 +635,7 @@ const InspectionPage = ({ initialTab = "departments" }) => {
           className="w-full p-2 border rounded"
         >
           <option value="">All Terms</option>
-          {terms.map((term) => (
+          {sortedTerms.map((term) => (
             <option key={term.id} value={term.id}>
               Term {term.term_number}
             </option>
@@ -697,6 +796,181 @@ const InspectionPage = ({ initialTab = "departments" }) => {
     </>
   );
 
+  const renderDuesInspection = () => {
+    const selectedStudentId = filters.dues.student_id;
+    const selectedRuleId = filters.dues.rule_id;
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <SearchBar
+            value={filters.dues.search}
+            onChange={(event) => setTabFilter("dues", "search", event.target.value)}
+            placeholder="Search dues or rules"
+          />
+
+          <div className="flex gap-2">
+            <select
+              value={selectedRuleId}
+              onChange={(event) => setTabFilter("dues", "rule_id", event.target.value)}
+              className="w-full p-2 border rounded"
+            >
+              <option value="">Select rule for preview</option>
+              {dueRules.map((rule) => (
+                <option key={rule.id} value={rule.id}>
+                  {rule.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!selectedRuleId || duePreviewLoading}
+              onClick={() => loadRulePreview(selectedRuleId)}
+              className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {duePreviewLoading ? "Loading..." : "Preview"}
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <select
+              value={selectedStudentId}
+              onChange={(event) => setTabFilter("dues", "student_id", event.target.value)}
+              className="w-full p-2 border rounded"
+            >
+              <option value="">Select student history</option>
+              {students.map((student) => (
+                <option key={student.user_id} value={student.user_id}>
+                  {student.roll_number || student.user_id}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!selectedStudentId || studentDueHistoryLoading}
+              onClick={() => loadStudentDueHistory(selectedStudentId)}
+              className="px-4 py-2 rounded bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-60"
+            >
+              {studentDueHistoryLoading ? "Loading..." : "History"}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <div className="p-3 border-b bg-gray-50 font-semibold text-sm">Due Definitions</div>
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Name</th>
+                  <th className="p-3 text-left">Amount</th>
+                  <th className="p-3 text-left">Required</th>
+                  <th className="p-3 text-left">Active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDues.map((row) => (
+                  <tr key={row.id} className="border-t">
+                    <td className="p-3">{row.name}</td>
+                    <td className="p-3">{row.amount}</td>
+                    <td className="p-3">{row.required_for_registration ? "Yes" : "No"}</td>
+                    <td className="p-3">{row.is_active ? "Yes" : "No"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <div className="p-3 border-b bg-gray-50 font-semibold text-sm">Due Rules</div>
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Rule</th>
+                  <th className="p-3 text-left">Due</th>
+                  <th className="p-3 text-left">Frequency</th>
+                  <th className="p-3 text-left">Active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDueRules.map((row) => (
+                  <tr key={row.id} className="border-t">
+                    <td className="p-3">{row.name}</td>
+                    <td className="p-3">{row.due_name}</td>
+                    <td className="p-3">{row.frequency}</td>
+                    <td className="p-3">{row.is_active ? "Yes" : "No"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {dueRulePreview && (
+          <div className="rounded-lg border border-gray-200 overflow-x-auto">
+            <div className="p-3 border-b bg-gray-50 text-sm">
+              Rule Preview: matched {dueRulePreview.matched_count || 0}, issuable {dueRulePreview.issuable_count || 0}
+            </div>
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Student ID</th>
+                  <th className="p-3 text-left">Roll</th>
+                  <th className="p-3 text-left">Department</th>
+                  <th className="p-3 text-left">Term</th>
+                  <th className="p-3 text-left">Section</th>
+                  <th className="p-3 text-left">Effective Amount</th>
+                  <th className="p-3 text-left">Due Date</th>
+                  <th className="p-3 text-left">Can Issue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(dueRulePreview.rows || []).slice(0, 200).map((row, index) => (
+                  <tr key={`${row.student_id}-${row.term_id ?? "na"}-${index}`} className="border-t">
+                    <td className="p-3">{row.student_id}</td>
+                    <td className="p-3">{row.roll_number || "-"}</td>
+                    <td className="p-3">{row.department_code || row.department_id || "-"}</td>
+                    <td className="p-3">{row.term_number || "-"}</td>
+                    <td className="p-3">{row.section_name || "-"}</td>
+                    <td className="p-3">{row.effective_amount}</td>
+                    <td className="p-3">{row.due_date || "-"}</td>
+                    <td className="p-3">{row.can_issue ? "Yes" : "No"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <div className="p-3 border-b bg-gray-50 font-semibold text-sm">Student Due History</div>
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-3 text-left">Due</th>
+                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">Paid</th>
+                <th className="p-3 text-left">Effective Amount</th>
+                <th className="p-3 text-left">Due Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {studentDueHistory.map((row) => (
+                <tr key={row.id} className="border-t">
+                  <td className="p-3">{row.due_name || row.due_id}</td>
+                  <td className="p-3">{row.status}</td>
+                  <td className="p-3">{row.amount_paid}</td>
+                  <td className="p-3">{row.effective_due_amount}</td>
+                  <td className="p-3">{row.due_date || row.deadline || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   const renderCurrentTab = () => {
     if (isLoading) return <Loader />;
     if (error) return <div className="p-4 text-red-600">{error}</div>;
@@ -707,6 +981,7 @@ const InspectionPage = ({ initialTab = "departments" }) => {
     if (activeTab === "sections") return renderSections();
     if (activeTab === "students") return renderStudents();
     if (activeTab === "teachers") return renderTeachers();
+    if (activeTab === "dues") return renderDuesInspection();
     return renderInitialCredentialCheck();
   };
 

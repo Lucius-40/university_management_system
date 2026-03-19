@@ -86,6 +86,56 @@ class CourseController {
             res.status(500).json({ error: error.message }); 
         }
     }
+
+    updateCourseOffering = async (req, res) => {
+        try {
+            const offering = await this.courseModel.updateCourseOffering(req.params.id, req.body);
+            if (!offering) {
+                return res.status(404).json({ message: "Course Offering not found" });
+            }
+            res.status(200).json(offering);
+        } catch (error) {
+            console.error("Update Course Offering error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    deleteCourseOffering = async (req, res) => {
+        try {
+            const offering = await this.courseModel.deleteCourseOffering(req.params.id);
+            if (!offering) {
+                return res.status(404).json({ message: "Course Offering not found" });
+            }
+            res.status(200).json({ message: "Course offering deleted successfully" });
+        } catch (error) {
+            console.error("Delete Course Offering error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getCourseOfferingsByTerm = async (req, res) => {
+        try {
+            const termId = Number(req.params.term_id);
+            const departmentId = req.query.department_id ? Number(req.query.department_id) : null;
+            const includeInactive = String(req.query.include_inactive || '').toLowerCase() === 'true';
+
+            if (!Number.isFinite(termId) || termId <= 0) {
+                return res.status(400).json({ error: "Valid term_id is required." });
+            }
+
+            const offerings = await this.courseModel.getCourseOfferingsByTerm(termId, departmentId, includeInactive);
+
+            res.status(200).json({
+                term_id: termId,
+                department_id: departmentId,
+                include_inactive: includeInactive,
+                offerings,
+            });
+        } catch (error) {
+            console.error("Get Course Offerings By Term error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
 }
 
 module.exports = CourseController;

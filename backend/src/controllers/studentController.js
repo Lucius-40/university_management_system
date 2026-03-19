@@ -167,13 +167,13 @@ class StudentController {
                 });
             }
 
-            // 6. Check for overdue dues
-            const overdueDues = await this.studentModel.hasOverdueDues(student_id);
-            if (overdueDues.length > 0) {
+            // 6. Check required blocking dues for the target term
+            const blockingDues = await this.studentModel.getBlockingDuesForRegistration(student_id, term.id);
+            if (blockingDues.length > 0) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ 
-                    error: "Cannot register with overdue dues",
-                    overdue_dues: overdueDues
+                    error: "Cannot register with unpaid required dues",
+                    overdue_dues: blockingDues
                 });
             }
 
@@ -188,6 +188,8 @@ class StudentController {
             const enrollments = [];
             const warnings = [];
             let totalNewCredits = 0;
+            let selectedOptionalCount = 0;
+            let selectedOptionalCredits = 0;
 
             for (const offering_id of course_offering_ids) {
                 // Get course offering details
@@ -197,6 +199,13 @@ class StudentController {
                     await client.query('ROLLBACK');
                     return res.status(400).json({ 
                         error: `Course offering ${offering_id} not found` 
+                    });
+                }
+
+                if (offering.is_active === false) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        error: `Course offering ${offering_id} is not active`
                     });
                 }
 
@@ -265,6 +274,10 @@ class StudentController {
                 }
 
                 totalNewCredits += parseFloat(offering.credit_hours);
+                if (offering.is_optional) {
+                    selectedOptionalCount += 1;
+                    selectedOptionalCredits += parseFloat(offering.credit_hours);
+                }
 
                 // Prepare enrollment data
                 enrollments.push({
@@ -276,26 +289,27 @@ class StudentController {
                 });
             }
 
-            // 10. Check credit limit
+            // 10. Check credit limit from term
+            const termCreditLimit = Number(term.max_credit || 23);
             const totalCredits = parseFloat(currentCredits) + totalNewCredits;
-            if (totalCredits > 23) {
+            if (totalCredits > termCreditLimit) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ 
-                    error: `Credit limit exceeded. Current: ${currentCredits}, Attempting to add: ${totalNewCredits}, Total: ${totalCredits}, Max: 23` 
+                    error: `Credit limit exceeded. Current: ${currentCredits}, Attempting to add: ${totalNewCredits}, Total: ${totalCredits}, Max: ${termCreditLimit}` 
                 });
             }
 
-            // 11. Assign student to section
+            // 12. Assign student to section
             const sectionAssignment = await this.sectionModel.assignStudentToSection(student_id, section_name);
 
-            // 12. Create all enrollments
+            // 13. Create all enrollments
             const createdEnrollments = [];
             for (const enrollment of enrollments) {
                 const created = await this.enrollmentModel.createEnrollment(enrollment);
                 createdEnrollments.push(created);
             }
 
-            // 13. Get advisor info
+            // 14. Get advisor info
             const advisor = await this.studentModel.getCurrentAdvisor(student_id);
 
             await client.query('COMMIT');
@@ -313,7 +327,11 @@ class StudentController {
                     previous: parseFloat(currentCredits),
                     new: totalNewCredits,
                     total: totalCredits,
-                    limit: 23
+                    limit: termCreditLimit
+                },
+                optional_load: {
+                    selected_optional_courses: selectedOptionalCount,
+                    selected_optional_credits: selectedOptionalCredits,
                 },
                 warnings: warnings.length > 0 ? warnings : undefined
             });
@@ -412,7 +430,8 @@ class StudentController {
                     id: term.id,
                     term_number: term.term_number,
                     start_date: term.start_date,
-                    end_date: term.end_date
+                    end_date: term.end_date,
+                    max_credit: Number(term.max_credit || 23),
                 },
                 courses: enrichedOfferings
             });
@@ -471,8 +490,10 @@ class StudentController {
                 }
             }
 
-            // Check dues
-            const overdueDues = await this.studentModel.hasOverdueDues(student_id);
+            // Check dues (required dues for this term only)
+            const blockingDues = term
+                ? await this.studentModel.getBlockingDuesForRegistration(student_id, term.id)
+                : await this.studentModel.getBlockingDuesForRegistration(student_id, null);
 
             // Get advisor
             const advisor = await this.studentModel.getCurrentAdvisor(student_id);
@@ -491,7 +512,7 @@ class StudentController {
 
             const eligible = registrationOpen && 
                            student.status === 'Active' && 
-                           overdueDues.length === 0 &&
+                           blockingDues.length === 0 &&
                            !!studentDept.department_id &&
                            !!term;
 
@@ -510,10 +531,11 @@ class StudentController {
                     id: term.id,
                     term_number: term.term_number,
                     start_date: term.start_date,
-                    end_date: term.end_date
+                    end_date: term.end_date,
+                    max_credit: Number(term.max_credit || 23),
                 } : null,
-                overdue_dues: overdueDues,
-                has_overdue_dues: overdueDues.length > 0,
+                overdue_dues: blockingDues,
+                has_overdue_dues: blockingDues.length > 0,
                 advisor: advisor ? {
                     id: advisor.teacher_id,
                     name: advisor.advisor_name,
@@ -522,13 +544,69 @@ class StudentController {
                 sections,
                 credits: {
                     current: parseFloat(currentCredits),
-                    remaining: 23 - parseFloat(currentCredits),
-                    limit: 23
+                    remaining: (Number(term?.max_credit || 23) - parseFloat(currentCredits)),
+                    limit: Number(term?.max_credit || 23),
                 }
             });
 
         } catch (error) {
             console.error("Get registration eligibility error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    assignAdvisorsByRollRange = async (req, res) => {
+        try {
+            const summary = await this.studentModel.assignAdvisorsByRollRange(req.body || {});
+            res.status(201).json(summary);
+        } catch (error) {
+            console.error("Assign advisors by roll range error:", error);
+            const statusCode = Number(error.statusCode) || 500;
+            res.status(statusCode).json({ error: error.message });
+        }
+    }
+
+    getCurrentAdvisorByStudentId = async (req, res) => {
+        try {
+            const studentId = Number(req.params.user_id);
+            if (!Number.isInteger(studentId) || studentId <= 0) {
+                return res.status(400).json({ error: "Invalid student id." });
+            }
+
+            const row = await this.studentModel.getCurrentAdvisorByStudentId(studentId);
+            res.status(200).json({ current_advisor: row || null });
+        } catch (error) {
+            console.error("Get current advisor by student id error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getAdvisorHistoryByStudentId = async (req, res) => {
+        try {
+            const studentId = Number(req.params.user_id);
+            if (!Number.isInteger(studentId) || studentId <= 0) {
+                return res.status(400).json({ error: "Invalid student id." });
+            }
+
+            const rows = await this.studentModel.getAdvisorHistoryByStudentId(studentId);
+            res.status(200).json({ history: rows || [] });
+        } catch (error) {
+            console.error("Get advisor history by student id error:", error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getAdvisorTimelineByStudentId = async (req, res) => {
+        try {
+            const studentId = Number(req.params.user_id);
+            if (!Number.isInteger(studentId) || studentId <= 0) {
+                return res.status(400).json({ error: "Invalid student id." });
+            }
+
+            const rows = await this.studentModel.getAdvisorTimelineByStudentId(studentId);
+            res.status(200).json({ timeline: rows || [] });
+        } catch (error) {
+            console.error("Get advisor timeline by student id error:", error);
             res.status(500).json({ error: error.message });
         }
     }

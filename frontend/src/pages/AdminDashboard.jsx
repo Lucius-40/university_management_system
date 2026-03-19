@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate, NavLink, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { useNavigate, NavLink, Routes, Route, useLocation, Navigate, Link } from "react-router-dom";
 import {
   LogOut,
   Building,
@@ -11,6 +11,7 @@ import {
   Clock,
   UserPlus,
   Search,
+  Wallet,
 } from "lucide-react";
 import CreateInfrastructure from "./CreateInfrastructure";
 import CreateEntity from "./CreateEntity";
@@ -18,6 +19,9 @@ import DepartmentDetails from "./DepartmentDetails";
 import ProfilePage from "./ProfilePage";
 import EntityInspect from "./EntityInspect";
 import InspectionPage from "./InspectionPage";
+import SystemStateDashboard from "./SystemStateDashboard";
+import DuesManagement from "./DuesManagement";
+import TermDetails from "./TermDetails";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -29,6 +33,8 @@ const AdminDashboard = () => {
       location.pathname.includes("/admin/dashboard/terms") ||
       location.pathname.includes("/admin/dashboard/sections") ||
       location.pathname.includes("/admin/dashboard/courses") ||
+      location.pathname.includes("/admin/dashboard/offerings") ||
+      location.pathname.includes("/admin/dashboard/teaches") ||
       location.pathname === "/admin/dashboard",
     [location.pathname]
   );
@@ -42,6 +48,11 @@ const AdminDashboard = () => {
 
   const shouldOpenInspection = useMemo(
     () => location.pathname.includes("/admin/dashboard/inspection"),
+    [location.pathname]
+  );
+
+  const isDuesRoute = useMemo(
+    () => location.pathname.includes("/admin/dashboard/dues"),
     [location.pathname]
   );
 
@@ -64,10 +75,13 @@ const AdminDashboard = () => {
     <div className="flex h-screen bg-gray-50">
       <aside className="w-72 bg-slate-900 text-white flex flex-col">
         <div className="p-4 border-b border-slate-700">
-          <h2 className="text-xl font-bold flex items-center gap-2">
+          <Link
+            to="/admin/dashboard/dashboard"
+            className="text-xl font-bold flex items-center gap-2 text-white hover:text-slate-200 transition"
+          >
             <LayoutDashboard size={20} />
             System Portal
-          </h2>
+          </Link>
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
@@ -138,6 +152,32 @@ const AdminDashboard = () => {
                   <Users size={15} />
                   Sections
                 </NavLink>
+                <NavLink
+                  to="/admin/dashboard/offerings"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <BookOpen size={15} />
+                  Course Offerings
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/teaches"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Users size={15} />
+                  Assign Teachings
+                </NavLink>
               </div>
             )}
           </div>
@@ -182,6 +222,32 @@ const AdminDashboard = () => {
                 >
                   <UserPlus size={15} />
                   Teachers
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/entities/advisors"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Users size={15} />
+                  Assign Advisors
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/entities/assign-sections"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Users size={15} />
+                  Assign Sections
                 </NavLink>
               </div>
             )}
@@ -280,6 +346,19 @@ const AdminDashboard = () => {
                   Teachers
                 </NavLink>
                 <NavLink
+                  to="/admin/dashboard/inspection/dues"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <Wallet size={15} />
+                  Dues
+                </NavLink>
+                <NavLink
                   to="/admin/dashboard/inspection/initial-credential-check"
                   className={({ isActive }) =>
                     `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
@@ -295,6 +374,20 @@ const AdminDashboard = () => {
               </div>
             )}
           </div>
+
+          <NavLink
+            to="/admin/dashboard/dues"
+            className={({ isActive }) =>
+              `flex items-center gap-3 w-full p-3 rounded transition ${
+                isActive || isDuesRoute
+                  ? "bg-slate-700 text-white"
+                  : "text-slate-200 hover:bg-slate-800"
+              }`
+            }
+          >
+            <Wallet size={18} />
+            Dues & Payments
+          </NavLink>
 
           
         </nav>
@@ -312,11 +405,15 @@ const AdminDashboard = () => {
 
       <main className="flex-1 overflow-auto p-8">
         <Routes>
+          <Route path="/dashboard" element={<SystemStateDashboard />} />
           <Route path="/departments" element={<CreateInfrastructure initialTab="department" />} />
           <Route path="/departments/:identifier" element={<DepartmentDetails />} />
           <Route path="/terms" element={<CreateInfrastructure initialTab="term" />} />
+          <Route path="/terms/:id" element={<TermDetails />} />
           <Route path="/sections" element={<CreateInfrastructure initialTab="section" />} />
           <Route path="/courses" element={<CreateInfrastructure initialTab="course" />} />
+          <Route path="/offerings" element={<CreateInfrastructure initialTab="offering" />} />
+          <Route path="/teaches" element={<CreateInfrastructure initialTab="teaches" />} />
           <Route path="/inspection" element={<Navigate to="/admin/dashboard/inspection/departments" replace />} />
           <Route path="/inspection/departments" element={<InspectionPage initialTab="departments" />} />
           <Route path="/inspection/terms" element={<InspectionPage initialTab="terms" />} />
@@ -324,12 +421,16 @@ const AdminDashboard = () => {
           <Route path="/inspection/sections" element={<InspectionPage initialTab="sections" />} />
           <Route path="/inspection/students" element={<InspectionPage initialTab="students" />} />
           <Route path="/inspection/teachers" element={<InspectionPage initialTab="teachers" />} />
+          <Route path="/inspection/dues" element={<InspectionPage initialTab="dues" />} />
           <Route
             path="/inspection/initial-credential-check"
             element={<InspectionPage initialTab="initial-credential-check" />}
           />
+          <Route path="/dues" element={<DuesManagement />} />
           <Route path="/entities/students" element={<CreateEntity initialTab="student" />} />
           <Route path="/entities/teachers" element={<CreateEntity initialTab="teacher" />} />
+          <Route path="/entities/advisors" element={<CreateEntity initialTab="advisor" />} />
+          <Route path="/entities/assign-sections" element={<CreateEntity initialTab="section-assign" />} />
           <Route path="/entities/inspect" element={<EntityInspect />} />
           <Route path="/entities" element={<CreateEntity initialTab="student" />} />
           <Route path="/profiles/:role/:id" element={<ProfilePage />} />
