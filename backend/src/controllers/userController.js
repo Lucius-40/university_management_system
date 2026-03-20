@@ -207,6 +207,149 @@ class UserController {
         }
     }
 
+    updateUserProfile = async (req, res) => {
+        try {
+            const requestedId = Number(req.params.id);
+            if (!Number.isInteger(requestedId) || requestedId <= 0) {
+                return res.status(400).json({ message: "Invalid user id." });
+            }
+
+            const requester = req.user;
+            const isAdmin = String(requester?.role || "").toLowerCase() === "admin";
+            if (!isAdmin && requester?.id !== requestedId) {
+                return res.status(403).json({ message: "You are not allowed to update this profile." });
+            }
+
+            const existingUser = await this.userModel.getUserById(requestedId);
+            if (!existingUser) {
+                return res.status(404).json({ message: "User not found." });
+            }
+
+            const allowedFields = [
+                "name",
+                "mobile_number",
+                "email",
+                "mobile_banking_number",
+                "bank_account_number",
+                "present_address",
+                "permanent_address",
+                "birth_reg_number",
+                "birth_date",
+                "nid_number",
+                "passport_number",
+                "emergency_contact_name",
+                "emergency_contact_number",
+                "emergency_contact_relation",
+            ];
+
+            const mergedPayload = { id: requestedId };
+            for (const field of allowedFields) {
+                if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+                    mergedPayload[field] = req.body[field];
+                } else {
+                    mergedPayload[field] = existingUser[field] ?? null;
+                }
+            }
+
+            const updatedUser = await this.userModel.updateUser(mergedPayload);
+            if (!updatedUser) {
+                return res.status(404).json({ message: "User not found." });
+            }
+
+            res.status(200).json({
+                message: "Profile updated successfully.",
+                user: this.sanitizeSensitiveFields(updatedUser),
+            });
+        } catch (error) {
+            console.error("Update User Profile error:", error);
+
+            if (error.code === "23505") {
+                return res.status(409).json({
+                    message: "A user with this email already exists.",
+                });
+            }
+
+            if (error.code === "23514") {
+                return res.status(400).json({
+                    message: error.message,
+                });
+            }
+
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    resetPassword = async (req, res) => {
+        try {
+            const requestedId = Number(req.params.id);
+            if (!Number.isInteger(requestedId) || requestedId <= 0) {
+                return res.status(400).json({ message: "Invalid user id." });
+            }
+
+            const requester = req.user;
+            const isAdmin = String(requester?.role || "").toLowerCase() === "admin";
+            if (!isAdmin && requester?.id !== requestedId) {
+                return res.status(403).json({ message: "You are not allowed to reset this password." });
+            }
+
+            const { currentPassword, newPassword, confirmPassword } = req.body || {};
+
+            if (!newPassword || !confirmPassword) {
+                return res.status(400).json({ message: "newPassword and confirmPassword are required." });
+            }
+
+            if (String(newPassword) !== String(confirmPassword)) {
+                return res.status(400).json({ message: "New password and confirm password do not match." });
+            }
+
+            if (String(newPassword).length < 8) {
+                return res.status(400).json({ message: "New password must be at least 8 characters long." });
+            }
+
+            const existingUser = await this.userModel.getUserById(requestedId);
+            if (!existingUser) {
+                return res.status(404).json({ message: "User not found." });
+            }
+
+            if (!isAdmin) {
+                if (!currentPassword) {
+                    return res.status(400).json({ message: "currentPassword is required." });
+                }
+
+                const isCurrentPasswordValid = await bcrypt.compare(String(currentPassword), existingUser.password_hash);
+                if (!isCurrentPasswordValid) {
+                    return res.status(401).json({ message: "Current password is incorrect." });
+                }
+            }
+
+            const isSamePassword = await bcrypt.compare(String(newPassword), existingUser.password_hash);
+            if (isSamePassword) {
+                return res.status(400).json({ message: "New password must be different from current password." });
+            }
+
+            const saltRounds = parseInt(process.env.SALT_ROUND || '10', 10);
+            const newPasswordHash = await bcrypt.hash(String(newPassword), await bcrypt.genSalt(saltRounds));
+
+            await this.userModel.resetPasswordByProcedure(requestedId, newPasswordHash);
+
+            try {
+                await this.initialCredentialsModel.markAsChanged(requestedId);
+            } catch (innerError) {
+                console.error("Could not mark initial credentials as changed:", innerError.message);
+            }
+
+            return res.status(200).json({ message: "Password reset successfully." });
+        } catch (error) {
+            console.error("Reset Password error:", error);
+
+            if (error.code === 'P0002') {
+                return res.status(404).json({ message: "User not found." });
+            }
+
+            return res.status(500).json({ error: error.message });
+        }
+    }
+
     getEntityInspectData = async (req, res) => {
         try {
             const filters = {

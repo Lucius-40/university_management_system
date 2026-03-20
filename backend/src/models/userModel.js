@@ -361,6 +361,20 @@ class UserModel{
         )
     }
 
+    resetPasswordByProcedure = (userId, newPasswordHash)=>{
+        return this.db.run(
+            'reset_password_by_procedure',
+            async()=>{
+                const query = `
+                    CALL reset_user_password($1, $2);
+                `;
+                const params = [userId, newPasswordHash];
+                await this.db.query_executor(query, params);
+                return true;
+            }
+        )
+    }
+
     getEntityInspectData = (filters = {}) => {
         return this.db.run(
             'get_entity_inspect_data',

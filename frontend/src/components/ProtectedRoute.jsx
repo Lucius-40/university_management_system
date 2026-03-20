@@ -3,12 +3,16 @@ import { useAuth } from '../context/AuthContext';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
     const { isAuthenticated, user } = useAuth();
+    const normalizedUserRole = String(user?.role || '').toLowerCase();
+    const normalizedAllowedRoles = Array.isArray(allowedRoles)
+      ? allowedRoles.map((role) => String(role).toLowerCase())
+      : null;
 
     if (!isAuthenticated || !user) {
       return <Navigate to="/login" replace />;
     }
 
-    if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (normalizedAllowedRoles && !normalizedAllowedRoles.includes(normalizedUserRole)) {
       return <Navigate to="/login" replace />;
     }
 
