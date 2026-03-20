@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Edit, RefreshCw, Trash2 } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import api from "../services/api";
 import Loader from "../components/Loader";
-import SearchBar from "../components/SearchBar";
 import { sortTermsDepartment } from "../utils/termSort";
+import ModeToggle from "./createInfrastructure/ModeToggle";
+import DepartmentSection from "./createInfrastructure/DepartmentSection";
+import TermSection from "./createInfrastructure/TermSection";
+import CourseSection from "./createInfrastructure/CourseSection";
+import SectionSection from "./createInfrastructure/SectionSection";
+import OfferingSection from "./createInfrastructure/OfferingSection";
+import TeachesSection from "./createInfrastructure/TeachesSection";
+import BatchCourseSection from "./createInfrastructure/BatchCourseSection";
+
+const COURSE_BATCH_CHUNK_SIZE = 60;
 
 const cacheKeyForTab = (tab) => `infra-${tab}-list`;
 
@@ -16,16 +25,27 @@ const clearDepartmentDetailsCache = () => {
   });
 };
 
+const buildQueryString = (params) => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null || value === "") return;
+    query.set(key, String(value));
+  });
+  return query.toString();
+};
+
 const CreateInfrastructure = ({ initialTab = "department" }) => {
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [activeMode, setActiveMode] = useState("insertion");
   const [departments, setDepartments] = useState([]);
   const [terms, setTerms] = useState([]);
   const [courses, setCourses] = useState([]);
   const [sections, setSections] = useState([]);
   const [offerings, setOfferings] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [teachingAssignments, setTeachingAssignments] = useState([]);
 
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -38,6 +58,8 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
 
   const initialDeptForm = { code: "", name: "" };
   const initialTermForm = {
+    department_id: "",
+    term_number: "",
     max_credit: "23",
   };
   const initialSectionForm = { department_id: "", term_id: "", name: "" };
@@ -66,9 +88,16 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     department_id: "",
     term_id: "",
     course_offering_id: "",
-    section_name: "",
+    section_names: [],
     teacher_id: "",
     replace_existing: false,
+  };
+
+  const initialTeachInspection = {
+    department_id: "",
+    term_id: "",
+    teacher_id: "",
+    search: "",
   };
 
   const [deptForm, setDeptForm] = useState(initialDeptForm);
@@ -78,9 +107,14 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   const [offeringForm, setOfferingForm] = useState(initialOfferingForm);
   const [offeringFilter, setOfferingFilter] = useState(initialOfferingFilter);
   const [teachForm, setTeachForm] = useState(initialTeachForm);
+  const [teachInspection, setTeachInspection] = useState(initialTeachInspection);
+  const [teachBatchResult, setTeachBatchResult] = useState(null);
+  const [batchCourseLoading, setBatchCourseLoading] = useState(false);
+  const [batchCourseResult, setBatchCourseResult] = useState(null);
 
   useEffect(() => {
     setActiveTab(initialTab);
+    setActiveMode("insertion");
     setSearch("");
     setMessage({ type: "", text: "" });
   }, [initialTab]);
@@ -238,9 +272,42 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     [activeTab]
   );
 
+  const loadTeachingAssignments = useCallback(
+    async (filters = teachInspection) => {
+      try {
+        const response = await api.get("/teacher-sections/assignments", {
+          params: {
+            department_id: filters.department_id || undefined,
+            term_id: filters.term_id || undefined,
+            teacher_id: filters.teacher_id || undefined,
+          },
+        });
+        setTeachingAssignments(response.data?.assignments || []);
+      } catch (error) {
+        setTeachingAssignments([]);
+        setMessage({
+          type: "error",
+          text: error.response?.data?.error || "Failed to load teaching assignments.",
+        });
+      }
+    },
+    [teachInspection]
+  );
+
+  const openInsights = (params = {}) => {
+    const queryString = buildQueryString(params);
+    navigate(queryString ? `/admin/dashboard/insights?${queryString}` : "/admin/dashboard/insights");
+  };
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (activeTab === "teaches" && activeMode === "inspection") {
+      loadTeachingAssignments();
+    }
+  }, [activeTab, activeMode, loadTeachingAssignments]);
 
   const clearInfrastructureCaches = () => {
     ["department", "term", "section", "course", "offering", "teaches"].forEach((tab) => {
@@ -260,6 +327,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     setCourseForm(initialCourseForm);
     setOfferingForm(initialOfferingForm);
     setTeachForm(initialTeachForm);
+    setTeachBatchResult(null);
   };
 
   const loadTeachOfferings = async (termId, departmentId = "") => {
@@ -312,25 +380,41 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   const handleTermSubmit = async (event) => {
     event.preventDefault();
 
-    if (!isEditing || !editId) {
-      setMessage({ type: "error", text: "Select an existing term first." });
+    if (!termForm.department_id || !termForm.term_number || !termForm.max_credit) {
+      setMessage({ type: "error", text: "Department, term number, and maximum credit are required." });
+      return;
+    }
+
+    const target = terms.find(
+      (term) =>
+        Number(term.department_id) === Number(termForm.department_id) &&
+        Number(term.term_number) === Number(termForm.term_number)
+    );
+
+    if (!target) {
+      setMessage({
+        type: "error",
+        text: "No matching term found for the selected department and term number.",
+      });
       return;
     }
 
     const payload = {
+      department_id: Number(termForm.department_id),
+      term_number: Number(termForm.term_number),
       max_credit: Number(termForm.max_credit),
     };
 
     try {
-      await api.put(`/terms/${editId}`, payload);
-      setMessage({ type: "success", text: "Term max credits updated successfully." });
+      await api.put(`/terms/${target.id}`, payload);
+      setMessage({ type: "success", text: "Term credits updated successfully." });
       clearInfrastructureCaches();
       handleResetForm();
       await fetchData(true);
     } catch (error) {
       setMessage({
         type: "error",
-        text: error.response?.data?.message || "Failed to update term max credits.",
+        text: error.response?.data?.message || "Failed to update term credits.",
       });
     }
   };
@@ -482,34 +566,113 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   const handleTeachesSubmit = async (event) => {
     event.preventDefault();
     setMessage({ type: "", text: "" });
+    setTeachBatchResult(null);
 
-    if (!teachForm.term_id || !teachForm.course_offering_id || !teachForm.section_name || !teachForm.teacher_id) {
+    if (!teachForm.term_id || !teachForm.course_offering_id || !teachForm.teacher_id) {
       setMessage({
         type: "error",
-        text: "Term, course offering, section, and teacher are required.",
+        text: "Term, course offering, and teacher are required.",
       });
       return;
     }
 
-    try {
-      const payload = {
-        course_offering_id: Number(teachForm.course_offering_id),
-        section_name: teachForm.section_name,
-        teacher_id: Number(teachForm.teacher_id),
-        replace_existing: Boolean(teachForm.replace_existing),
-      };
+    if ((teachForm.section_names || []).length === 0) {
+      setMessage({ type: "error", text: "Select at least one section." });
+      return;
+    }
 
-      const response = await api.post("/teacher-sections/assign", payload);
-      const action = response?.data?.action || "saved";
+    try {
+      let inserted = 0;
+      let updated = 0;
+      let unchanged = 0;
+      const failures = [];
+
+      for (const sectionName of teachForm.section_names || []) {
+        try {
+          const payload = {
+            course_offering_id: Number(teachForm.course_offering_id),
+            section_name: sectionName,
+            teacher_id: Number(teachForm.teacher_id),
+            replace_existing: Boolean(teachForm.replace_existing),
+          };
+
+          const response = await api.post("/teacher-sections/assign", payload);
+          const action = response?.data?.action;
+          if (action === "inserted") inserted += 1;
+          if (action === "updated") updated += 1;
+          if (action === "unchanged") unchanged += 1;
+        } catch (error) {
+          failures.push({
+            section_name: sectionName,
+            message: error.response?.data?.error || "Assignment failed",
+          });
+        }
+      }
+
+      setTeachBatchResult({ inserted, updated, unchanged, failures });
+      const failed = failures.length;
       setMessage({
-        type: "success",
-        text: `Teaching assignment ${action} successfully.`,
+        type: failed > 0 ? "error" : "success",
+        text: `Assignments complete. Inserted: ${inserted}, Updated: ${updated}, Unchanged: ${unchanged}, Failed: ${failed}.`,
       });
+      await loadTeachingAssignments();
     } catch (error) {
       setMessage({
         type: "error",
         text: error.response?.data?.error || "Failed to assign teacher to section.",
       });
+    }
+  };
+
+  const handleBatchCourseSubmit = async (rows) => {
+    setMessage({ type: "", text: "" });
+    setBatchCourseResult(null);
+
+    try {
+      setBatchCourseLoading(true);
+      const chunkCount = Math.ceil(rows.length / COURSE_BATCH_CHUNK_SIZE);
+      let inserted = 0;
+      const results = [];
+
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        const start = chunkIndex * COURSE_BATCH_CHUNK_SIZE;
+        const end = start + COURSE_BATCH_CHUNK_SIZE;
+        const chunkRows = rows.slice(start, end);
+        const response = await api.post("/courses/batch", { rows: chunkRows });
+        const chunkData = response.data || {};
+
+        inserted += Number(chunkData.inserted || 0);
+
+        const chunkResults = Array.isArray(chunkData.results) ? chunkData.results : [];
+        for (const item of chunkResults) {
+          results.push({
+            ...item,
+            row: Number(item.row || 0) + start,
+          });
+        }
+      }
+
+      const mergedResult = {
+        total: rows.length,
+        inserted,
+        failed: rows.length - inserted,
+        results,
+      };
+
+      setBatchCourseResult(mergedResult);
+      setMessage({
+        type: "success",
+        text: `Course batch import completed in ${chunkCount} request(s). Inserted ${mergedResult.inserted} of ${mergedResult.total}.`,
+      });
+      clearInfrastructureCaches();
+      await fetchData(true);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to import courses in batch.",
+      });
+    } finally {
+      setBatchCourseLoading(false);
     }
   };
 
@@ -783,6 +946,48 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     [sections, teachForm.term_id]
   );
 
+  const toggleTeachSection = (sectionName) => {
+    const selected = new Set(teachForm.section_names || []);
+    if (selected.has(sectionName)) {
+      selected.delete(sectionName);
+    } else {
+      selected.add(sectionName);
+    }
+
+    setTeachForm((prev) => ({
+      ...prev,
+      section_names: [...selected].sort((left, right) => left.localeCompare(right)),
+    }));
+  };
+
+  const filteredTeachingAssignments = useMemo(() => {
+    const q = String(teachInspection.search || "").toLowerCase().trim();
+
+    return teachingAssignments.filter((assignment) => {
+      const matchesDepartment =
+        !teachInspection.department_id ||
+        Number(assignment.department_id) === Number(teachInspection.department_id);
+      const matchesTerm = !teachInspection.term_id || Number(assignment.term_id) === Number(teachInspection.term_id);
+      const matchesTeacher =
+        !teachInspection.teacher_id || Number(assignment.teacher_id) === Number(teachInspection.teacher_id);
+
+      if (!matchesDepartment || !matchesTerm || !matchesTeacher) {
+        return false;
+      }
+
+      if (!q) return true;
+
+      return (
+        String(assignment.teacher_name || "").toLowerCase().includes(q) ||
+        String(assignment.teacher_appointment || "").toLowerCase().includes(q) ||
+        String(assignment.course_code || "").toLowerCase().includes(q) ||
+        String(assignment.course_name || "").toLowerCase().includes(q) ||
+        String(assignment.department_code || "").toLowerCase().includes(q) ||
+        String(assignment.section_name || "").toLowerCase().includes(q)
+      );
+    });
+  }, [teachingAssignments, teachInspection]);
+
   const teacherWithIdentity = useMemo(() => {
     return [...teachers]
       .map((teacher) => {
@@ -798,239 +1003,10 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
       .sort((left, right) => String(left.display_name).localeCompare(String(right.display_name)));
   }, [teachers, departments]);
 
-  const renderTable = () => {
-    if (isLoading) return <Loader />;
-
-    if (activeTab === "department") {
-      return (
-        <table className="w-full text-left bg-white rounded-lg shadow overflow-hidden">
-          <thead className="bg-gray-100 text-gray-700">
-            <tr>
-              <th className="p-3">Code</th>
-              <th className="p-3">Name</th>
-              <th className="p-3 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredDepartments.length === 0 ? (
-              <tr>
-                <td colSpan="3" className="p-3 text-center text-gray-500">
-                  No departments found
-                </td>
-              </tr>
-            ) : (
-              filteredDepartments.map((department) => (
-                <tr
-                  key={department.id}
-                  className="border-t hover:bg-gray-50 cursor-pointer"
-                  onClick={() =>
-                    navigate(`/admin/dashboard/departments/${encodeURIComponent(department.code || department.name)}`)
-                  }
-                >
-                  <td className="p-3 font-medium text-blue-700">{department.code}</td>
-                  <td className="p-3">{department.name}</td>
-                  <td className="p-3 flex justify-center gap-3">
-                    <button
-                      type="button"
-                      onClick={(event) => handleEdit(department, event)}
-                      className="text-blue-500 hover:text-blue-700"
-                    >
-                      <Edit size={18} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => handleDelete(department.id, event)}
-                      className="text-red-500 hover:text-red-700"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      );
-    }
-
-    // if (activeTab === "term") {
-    //   return (
-    //     <table className="w-full text-left bg-white rounded-lg shadow overflow-hidden">
-    //       <thead className="bg-gray-100 text-gray-700">
-    //         <tr>
-    //           <th className="p-3">Department</th>
-    //           <th className="p-3">Term</th>
-    //           <th className="p-3">Start Date</th>
-    //           <th className="p-3">End Date</th>
-    //           <th className="p-3 text-center">Actions</th>
-    //         </tr>
-    //       </thead>
-    //       <tbody>
-    //         {filteredTerms.length === 0 ? (
-    //           <tr>
-    //             <td colSpan="5" className="p-3 text-center text-gray-500">
-    //               No terms found
-    //             </td>
-    //           </tr>
-    //         ) : (
-    //           filteredTerms.map((term) => {
-    //             const department = departments.find((dept) => dept.id === term.department_id);
-    //             return (
-    //               <tr key={term.id} className="border-t hover:bg-gray-50">
-    //                 <td className="p-3">{department ? department.code : term.department_id}</td>
-    //                 <td className="p-3">{term.term_number}</td>
-    //                 <td className="p-3">
-    //                   {term.start_date ? new Date(term.start_date).toLocaleDateString() : "-"}
-    //                 </td>
-    //                 <td className="p-3">
-    //                   {term.end_date ? new Date(term.end_date).toLocaleDateString() : "-"}
-    //                 </td>
-    //                 <td className="p-3 flex justify-center gap-3">
-    //                   <button
-    //                     type="button"
-    //                     onClick={(event) => handleEdit(term, event)}
-    //                     className="text-blue-500 hover:text-blue-700"
-    //                   >
-    //                     <Edit size={18} />
-    //                   </button>
-    //                   <button
-    //                     type="button"
-    //                     onClick={(event) => handleDelete(term.id, event)}
-    //                     className="text-red-500 hover:text-red-700"
-    //                   >
-    //                     <Trash2 size={18} />
-    //                   </button>
-    //                 </td>
-    //               </tr>
-    //             );
-    //           })
-    //         )}
-    //       </tbody>
-    //     </table>
-    //   );
-    // }
-
-    if (activeTab === "section") {
-      return (
-        <table className="w-full text-left bg-white rounded-lg shadow overflow-hidden">
-          <thead className="bg-gray-100 text-gray-700">
-            <tr>
-              <th className="p-3">Department</th>
-              <th className="p-3">Term</th>
-              <th className="p-3">Section Name</th>
-              <th className="p-3 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredSections.length === 0 ? (
-              <tr>
-                <td colSpan="4" className="p-3 text-center text-gray-500">
-                  No sections found
-                </td>
-              </tr>
-            ) : (
-              filteredSections.map((section) => {
-                const term = terms.find((t) => Number(t.id) === Number(section.term_id));
-                const department = departments.find((d) => Number(d.id) === Number(term?.department_id));
-                return (
-                  <tr key={`${section.term_id}-${section.name}`} className="border-t hover:bg-gray-50">
-                    <td className="p-3">{department ? department.code : "-"}</td>
-                    <td className="p-3">{term ? term.term_number : section.term_id}</td>
-                    <td className="p-3 font-medium">{section.name}</td>
-                    <td className="p-3 flex justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={(event) => handleEdit(section, event)}
-                        className="text-blue-500 hover:text-blue-700"
-                      >
-                        <Edit size={18} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) =>
-                          handleDelete({ term_id: section.term_id, name: section.name }, event)
-                        }
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      );
-    }
-
-    return (
-      <table className="w-full text-left bg-white rounded-lg shadow overflow-hidden">
-        <thead className="bg-gray-100 text-gray-700">
-          <tr>
-            <th className="p-3">Code</th>
-            <th className="p-3">Name</th>
-            <th className="p-3">Department</th>
-            <th className="p-3">Type</th>
-            <th className="p-3">Credits</th>
-            <th className="p-3">Prerequisite Courses</th>
-            <th className="p-3 text-center">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredCourses.length === 0 ? (
-            <tr>
-              <td colSpan="7" className="p-3 text-center text-gray-500">
-                No courses found
-              </td>
-            </tr>
-          ) : (
-            filteredCourses.map((course) => {
-              const department = departments.find((dept) => dept.id === course.department_id);
-              const prereqIds = Array.isArray(course.prereq_ids)
-                ? course.prereq_ids.filter((id) => id !== null && id !== undefined)
-                : [];
-              const prereqCodes = prereqIds
-                .map((id) => {
-                  const prereqCourse = courses.find((courseItem) => Number(courseItem.id) === Number(id));
-                  return prereqCourse?.course_code || null;
-                })
-                .filter(Boolean);
-              return (
-                <tr key={course.id} className="border-t hover:bg-gray-50">
-                  <td className="p-3">{course.course_code}</td>
-                  <td className="p-3">{course.name}</td>
-                  <td className="p-3">{department ? department.code : course.department_id}</td>
-                  <td className="p-3 capitalize">{course.type}</td>
-                  <td className="p-3">{course.credit_hours}</td>
-                  <td className="p-3">{prereqCodes.length > 0 ? prereqCodes.join(", ") : "elementary"}</td>
-                  <td className="p-3 flex justify-center gap-3">
-                    <button
-                      type="button"
-                      onClick={(event) => handleEdit(course, event)}
-                      className="text-blue-500 hover:text-blue-700"
-                    >
-                      <Edit size={18} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => handleDelete(course.id, event)}
-                      className="text-red-500 hover:text-red-700"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
-    );
-  };
-
-  // Listing UI moved to Inspection page; keep helper for now to avoid breaking existing edit/delete logic.
-  void renderTable;
+  const supportsModeToggle = activeTab !== "department";
+  const supportsBatchMode = activeTab === "course";
+  const showInsertion = activeTab === "department" || activeMode === "insertion";
+  const showInspection = activeTab === "department" || activeMode === "inspection";
 
   return (
     <div className="max-w-5xl mx-auto pb-10">
@@ -1064,781 +1040,146 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
           </div>
         )}
 
-        {activeTab === "department" && (
-          <form onSubmit={handleDeptSubmit} className="space-y-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">
-                {isEditing ? "Edit Department" : "Create New Department"}
-              </h2>
-              {isEditing && (
-                <button
-                  type="button"
-                  onClick={handleResetForm}
-                  className="text-sm text-gray-500 hover:underline"
-                >
-                  Cancel Edit
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Code (e.g., CSE)</label>
-                <input
-                  required
-                  type="text"
-                  value={deptForm.code}
-                  onChange={(event) => setDeptForm({ ...deptForm, code: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Full Name</label>
-                <input
-                  required
-                  type="text"
-                  value={deptForm.name}
-                  onChange={(event) => setDeptForm({ ...deptForm, name: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
-            >
-              {isEditing ? "Update Department" : "Create Department"}
-            </button>
-          </form>
-        )}
+        <ModeToggle
+          supportsModeToggle={supportsModeToggle}
+          activeMode={activeMode}
+          setActiveMode={setActiveMode}
+          includeBatch={supportsBatchMode}
+        />
 
-        {activeTab === "term" && (
-          <form onSubmit={handleTermSubmit} className="space-y-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Edit Term Max Credits</h2>
-              {isEditing && (
-                <button
-                  type="button"
-                  onClick={handleResetForm}
-                  className="text-sm text-gray-500 hover:underline"
-                >
-                  Cancel Edit
-                </button>
-              )}
-            </div>
+        <DepartmentSection
+          activeTab={activeTab}
+          showInsertion={showInsertion}
+          showInspection={showInspection}
+          isEditing={isEditing}
+          handleDeptSubmit={handleDeptSubmit}
+          handleResetForm={handleResetForm}
+          deptForm={deptForm}
+          setDeptForm={setDeptForm}
+          search={search}
+          setSearch={setSearch}
+          filteredDepartments={filteredDepartments}
+          openInsights={openInsights}
+          navigate={navigate}
+          handleEdit={handleEdit}
+          handleDelete={handleDelete}
+        />
 
-            <div className="rounded border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
-              Terms are created from System State initialization. Choose an existing term and update only
-              max credits from here.
-            </div>
+        <TermSection
+          activeTab={activeTab}
+          showInsertion={showInsertion}
+          showInspection={showInspection}
+          handleTermSubmit={handleTermSubmit}
+          termForm={termForm}
+          setTermForm={setTermForm}
+          departments={departments}
+          sortedTerms={sortedTerms}
+          search={search}
+          setSearch={setSearch}
+          filteredTerms={filteredTerms}
+          openInsights={openInsights}
+          navigate={navigate}
+        />
 
-            <div className="grid grid-cols-1 gap-4">
-              <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1">Select Existing Term</label>
-                <select
-                  required
-                  value={typeof editId === "number" || typeof editId === "string" ? editId : ""}
-                  onChange={(event) => {
-                    const selectedId = Number(event.target.value);
-                    const selectedTerm = terms.find((term) => Number(term.id) === selectedId);
+        <CourseSection
+          activeTab={activeTab}
+          showInsertion={showInsertion}
+          showInspection={showInspection}
+          isEditing={isEditing}
+          handleCourseSubmit={handleCourseSubmit}
+          handleResetForm={handleResetForm}
+          courseForm={courseForm}
+          setCourseForm={setCourseForm}
+          departments={departments}
+          prereqSearch={prereqSearch}
+          setPrereqSearch={setPrereqSearch}
+          availablePrereqCourses={availablePrereqCourses}
+          togglePrerequisite={togglePrerequisite}
+          selectedPrereqList={selectedPrereqList}
+          search={search}
+          setSearch={setSearch}
+          filteredCourses={filteredCourses}
+          courses={courses}
+          openInsights={openInsights}
+          handleEdit={handleEdit}
+          handleDelete={handleDelete}
+        />
 
-                    if (!selectedTerm) {
-                      setIsEditing(false);
-                      setEditId(null);
-                      setTermForm(initialTermForm);
-                      return;
-                    }
+        <BatchCourseSection
+          activeTab={activeTab}
+          activeMode={activeMode}
+          loading={batchCourseLoading}
+          result={batchCourseResult}
+          onSubmit={handleBatchCourseSubmit}
+        />
 
-                    setIsEditing(true);
-                    setEditId(selectedTerm.id);
-                    setTermForm({
-                      max_credit: String(selectedTerm.max_credit ?? "23"),
-                    });
-                  }}
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Department + Term</option>
-                  {sortedTerms.map((term) => {
-                    const department = departments.find(
-                      (departmentItem) => Number(departmentItem.id) === Number(term.department_id)
-                    );
-                    return (
-                      <option key={term.id} value={term.id}>
-                        {department ? department.code : `Department ${term.department_id}`} - Term {term.term_number}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Max Credits</label>
-                <input
-                  required
-                  min="0.5"
-                  step="0.5"
-                  type="number"
-                  value={termForm.max_credit}
-                  onChange={(event) => setTermForm({ ...termForm, max_credit: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
-            >
-              Update Max Credits
-            </button>
-          </form>
-        )}
+        <SectionSection
+          activeTab={activeTab}
+          showInsertion={showInsertion}
+          showInspection={showInspection}
+          isEditing={isEditing}
+          handleSectionSubmit={handleSectionSubmit}
+          handleResetForm={handleResetForm}
+          sectionForm={sectionForm}
+          setSectionForm={setSectionForm}
+          departments={departments}
+          sortedTerms={sortedTerms}
+          search={search}
+          setSearch={setSearch}
+          filteredSections={filteredSections}
+          terms={terms}
+          openInsights={openInsights}
+        />
 
-        {activeTab === "course" && (
-          <form onSubmit={handleCourseSubmit} className="space-y-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">
-                {isEditing ? "Edit Course" : "Create New Course"}
-              </h2>
-              {isEditing && (
-                <button
-                  type="button"
-                  onClick={handleResetForm}
-                  className="text-sm text-gray-500 hover:underline"
-                >
-                  Cancel Edit
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2 md:col-span-1">
-                <label className="block text-sm font-medium mb-1">Department</label>
-                <select
-                  required
-                  value={courseForm.department_id}
-                  onChange={(event) =>
-                    setCourseForm({ ...courseForm, department_id: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Department</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.code} - {department.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Course Code</label>
-                <input
-                  required
-                  type="text"
-                  value={courseForm.course_code}
-                  onChange={(event) =>
-                    setCourseForm({ ...courseForm, course_code: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1">Course Name</label>
-                <input
-                  required
-                  type="text"
-                  value={courseForm.name}
-                  onChange={(event) => setCourseForm({ ...courseForm, name: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Credit Hours</label>
-                <input
-                  required
-                  type="number"
-                  step="0.5"
-                  value={courseForm.credit_hours}
-                  onChange={(event) =>
-                    setCourseForm({ ...courseForm, credit_hours: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Type</label>
-                <select
-                  required
-                  value={courseForm.type}
-                  onChange={(event) => setCourseForm({ ...courseForm, type: event.target.value })}
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="Theory">Theory</option>
-                  <option value="Lab">Lab</option>
-                </select>
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1">Course Prerequisites (Optional)</label>
-                <SearchBar
-                  value={prereqSearch}
-                  onChange={(event) => setPrereqSearch(event.target.value)}
-                  placeholder="Search by course ID, code, or name"
-                  className="mb-2"
-                />
-                <div className="border rounded p-2 max-h-44 overflow-auto space-y-2">
-                  {availablePrereqCourses.length === 0 ? (
-                    <p className="text-sm text-gray-500 px-1">No matching courses found.</p>
-                  ) : (
-                    availablePrereqCourses.map((course) => {
-                      const checked = (courseForm.prereq_ids || []).includes(String(course.id));
-                      return (
-                        <label
-                          key={course.id}
-                          className="flex items-center gap-2 text-sm text-gray-700 hover:bg-gray-50 rounded px-1 py-1"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => togglePrerequisite(course.id)}
-                          />
-                          <span>
-                            #{course.id} - {course.course_code} - {course.name}
-                          </span>
-                        </label>
-                      );
-                    })
-                  )}
-                </div>
-                {selectedPrereqList.length > 0 ? (
-                  <p className="text-xs text-gray-600 mt-2">
-                    Selected Courses: {selectedPrereqList.map((course) => course.course_code).join(", ")}
-                  </p>
-                ) : (
-                  <p className="text-xs text-gray-500 mt-2">No prerequisites selected (elementary course).</p>
-                )}
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
-            >
-              {isEditing ? "Update Course" : "Create Course"}
-            </button>
-          </form>
-        )}
+        <OfferingSection
+          activeTab={activeTab}
+          showInsertion={showInsertion}
+          showInspection={showInspection}
+          isEditing={isEditing}
+          handleOfferingSubmit={handleOfferingSubmit}
+          handleResetForm={handleResetForm}
+          offeringForm={offeringForm}
+          setOfferingForm={setOfferingForm}
+          departments={departments}
+          sortedTerms={sortedTerms}
+          offeringCourseSearch={offeringCourseSearch}
+          setOfferingCourseSearch={setOfferingCourseSearch}
+          filteredOfferingCourses={filteredOfferingCourses}
+          toggleOfferingCourseSelection={toggleOfferingCourseSelection}
+          loadOfferingsByFilter={loadOfferingsByFilter}
+          offeringFilter={offeringFilter}
+          setOfferingFilter={setOfferingFilter}
+          filteredOfferings={filteredOfferings}
+          courses={courses}
+          terms={terms}
+          openInsights={openInsights}
+          handleOfferingEdit={handleOfferingEdit}
+          handleOfferingDelete={handleOfferingDelete}
+        />
 
-        {activeTab === "section" && (
-          <form onSubmit={handleSectionSubmit} className="space-y-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">
-                {isEditing ? "Edit Section" : "Create New Section"}
-              </h2>
-              {isEditing && (
-                <button
-                  type="button"
-                  onClick={handleResetForm}
-                  className="text-sm text-gray-500 hover:underline"
-                >
-                  Cancel Edit
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Department</label>
-                <select
-                  required
-                  value={sectionForm.department_id}
-                  onChange={(event) =>
-                    setSectionForm({
-                      ...sectionForm,
-                      department_id: event.target.value,
-                      term_id: "",
-                    })
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Department</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.code} - {department.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Term</label>
-                <select
-                  required
-                  value={sectionForm.term_id}
-                  onChange={(event) => setSectionForm({ ...sectionForm, term_id: event.target.value })}
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Term</option>
-                  {sortedTerms
-                    .filter((term) =>
-                      sectionForm.department_id
-                        ? Number(term.department_id) === Number(sectionForm.department_id)
-                        : true
-                    )
-                    .map((term) => (
-                      <option key={term.id} value={term.id}>
-                        Term {term.term_number}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1">Section Name</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="e.g., A"
-                  value={sectionForm.name}
-                  onChange={(event) => setSectionForm({ ...sectionForm, name: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
-            >
-              {isEditing ? "Update Section" : "Create Section"}
-            </button>
-          </form>
-        )}
-
-        {activeTab === "offering" && (
-          <div className="space-y-8">
-            <form onSubmit={handleOfferingSubmit} className="space-y-4">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">
-                  {isEditing ? "Edit Course Offering" : "Create Course Offerings"}
-                </h2>
-                {isEditing && (
-                  <button
-                    type="button"
-                    onClick={handleResetForm}
-                    className="text-sm text-gray-500 hover:underline"
-                  >
-                    Cancel Edit
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Department</label>
-                  <select
-                    required
-                    value={offeringForm.department_id}
-                    onChange={(event) =>
-                      setOfferingForm((prev) => ({
-                        ...prev,
-                        department_id: event.target.value,
-                        term_id: "",
-                        selected_course_ids: [],
-                      }))
-                    }
-                    className="w-full p-2 border rounded"
-                  >
-                    <option value="">Select Department</option>
-                    {departments.map((department) => (
-                      <option key={department.id} value={department.id}>
-                        {department.code} - {department.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Term</label>
-                  <select
-                    required
-                    value={offeringForm.term_id}
-                    onChange={(event) =>
-                      setOfferingForm((prev) => ({ ...prev, term_id: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                  >
-                    <option value="">Select Term</option>
-                    {sortedTerms
-                      .filter((term) =>
-                        offeringForm.department_id
-                          ? Number(term.department_id) === Number(offeringForm.department_id)
-                          : true
-                      )
-                      .map((term) => (
-                        <option key={term.id} value={term.id}>
-                          Term {term.term_number}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">
-                    Course {isEditing ? "(single for edit)" : "(select one)"}
-                  </label>
-                  <SearchBar
-                    value={offeringCourseSearch}
-                    onChange={(event) => setOfferingCourseSearch(event.target.value)}
-                    placeholder="Find by id, code, name, or department"
-                    className="mb-2"
-                  />
-                  <div className="border rounded p-2 max-h-52 overflow-auto space-y-2">
-                    {filteredOfferingCourses.length === 0 ? (
-                      <p className="text-sm text-gray-500 px-1">No courses available.</p>
-                    ) : (
-                      filteredOfferingCourses.map((course) => {
-                        const checked = (offeringForm.selected_course_ids || []).includes(String(course.id));
-                        const courseDepartment = departments.find(
-                          (department) => Number(department.id) === Number(course.department_id)
-                        );
-                        return (
-                          <label
-                            key={course.id}
-                            className="flex items-center gap-2 text-sm text-gray-700 hover:bg-gray-50 rounded px-1 py-1"
-                          >
-                            <input
-                              type="radio"
-                              name="offering-course-selection"
-                              checked={checked}
-                              onChange={() => toggleOfferingCourseSelection(course.id)}
-                            />
-                            <span>
-                              {course.course_code} - {course.name}
-                              {courseDepartment ? ` (${courseDepartment.code})` : ""}
-                            </span>
-                          </label>
-                        );
-                      })
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Selected: {(offeringForm.selected_course_ids || []).length}/1.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Max Capacity</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={offeringForm.max_capacity}
-                    onChange={(event) =>
-                      setOfferingForm((prev) => ({ ...prev, max_capacity: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    id="offering-is-optional"
-                    type="checkbox"
-                    checked={Boolean(offeringForm.is_optional)}
-                    onChange={(event) =>
-                      setOfferingForm((prev) => ({ ...prev, is_optional: event.target.checked }))
-                    }
-                  />
-                  <label htmlFor="offering-is-optional" className="text-sm font-medium text-gray-700">
-                    Optional Course
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    id="offering-is-active"
-                    type="checkbox"
-                    checked={Boolean(offeringForm.is_active)}
-                    onChange={(event) =>
-                      setOfferingForm((prev) => ({ ...prev, is_active: event.target.checked }))
-                    }
-                  />
-                  <label htmlFor="offering-is-active" className="text-sm font-medium text-gray-700">
-                    Active
-                  </label>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
-              >
-                {isEditing ? "Update Offering" : "Create Offerings"}
-              </button>
-            </form>
-
-            <div className="border-t pt-6 space-y-4">
-              <h3 className="text-lg font-semibold text-gray-800">Offering Inspection</h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <select
-                  value={offeringFilter.department_id}
-                  onChange={(event) =>
-                    setOfferingFilter((prev) => ({
-                      ...prev,
-                      department_id: event.target.value,
-                    }))
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">All Departments</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.code} - {department.name}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={offeringFilter.term_id}
-                  onChange={(event) =>
-                    setOfferingFilter((prev) => ({
-                      ...prev,
-                      term_id: event.target.value,
-                    }))
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Term</option>
-                  {sortedTerms
-                    .filter((term) =>
-                      offeringFilter.department_id
-                        ? Number(term.department_id) === Number(offeringFilter.department_id)
-                        : true
-                    )
-                    .map((term) => (
-                      <option key={term.id} value={term.id}>
-                        Term {term.term_number}
-                      </option>
-                    ))}
-                </select>
-
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(offeringFilter.include_inactive)}
-                    onChange={(event) =>
-                      setOfferingFilter((prev) => ({
-                        ...prev,
-                        include_inactive: event.target.checked,
-                      }))
-                    }
-                  />
-                  Include Inactive
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => loadOfferingsByFilter(offeringFilter)}
-                  className="bg-slate-700 text-white px-4 py-2 rounded hover:bg-slate-800"
-                >
-                  Load Offerings
-                </button>
-              </div>
-
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="p-3 text-left">ID</th>
-                      <th className="p-3 text-left">Course</th>
-                      <th className="p-3 text-left">Optional</th>
-                      <th className="p-3 text-left">Max Capacity</th>
-                      <th className="p-3 text-left">Active</th>
-                      <th className="p-3 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOfferings.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="p-3 text-center text-gray-500">
-                          No offerings found. Select term and load.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredOfferings.map((offering) => {
-                        const course = courses.find((item) => Number(item.id) === Number(offering.course_id));
-                        return (
-                          <tr key={offering.id} className="border-t hover:bg-gray-50">
-                            <td className="p-3">{offering.id}</td>
-                            <td className="p-3">
-                              {course ? `${course.course_code} - ${course.name}` : `Course #${offering.course_id}`}
-                            </td>
-                            <td className="p-3">{offering.is_optional ? "Yes" : "No"}</td>
-                            <td className="p-3">{offering.max_capacity ?? "-"}</td>
-                            <td className="p-3">{offering.is_active ? "Yes" : "No"}</td>
-                            <td className="p-3 flex gap-3">
-                              <button
-                                type="button"
-                                onClick={() => handleOfferingEdit(offering)}
-                                className="text-blue-500 hover:text-blue-700"
-                              >
-                                <Edit size={18} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOfferingDelete(offering.id)}
-                                className="text-red-500 hover:text-red-700"
-                              >
-                                <Trash2 size={18} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "teaches" && (
-          <form onSubmit={handleTeachesSubmit} className="space-y-4">
-            <h2 className="text-xl font-semibold mb-4">Assign Teacher To Section</h2>
-            <p className="text-sm text-gray-600">
-              Create one teaching assignment at a time. Each offering + section can only have one teacher.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Department (Filter)</label>
-                <select
-                  value={teachForm.department_id}
-                  onChange={async (event) => {
-                    const departmentId = event.target.value;
-                    const nextTermId = "";
-                    setTeachForm((prev) => ({
-                      ...prev,
-                      department_id: departmentId,
-                      term_id: nextTermId,
-                      course_offering_id: "",
-                      section_name: "",
-                    }));
-                    setOfferings([]);
-                  }}
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">All Departments</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.code} - {department.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Term</label>
-                <select
-                  required
-                  value={teachForm.term_id}
-                  onChange={async (event) => {
-                    const termId = event.target.value;
-                    setTeachForm((prev) => ({
-                      ...prev,
-                      term_id: termId,
-                      course_offering_id: "",
-                      section_name: "",
-                    }));
-                    await loadTeachOfferings(termId, teachForm.department_id);
-                  }}
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Term</option>
-                  {teachTerms.map((term) => (
-                    <option key={term.id} value={term.id}>
-                      Term {term.term_number}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Course Offering</label>
-                <select
-                  required
-                  value={teachForm.course_offering_id}
-                  onChange={(event) =>
-                    setTeachForm((prev) => ({ ...prev, course_offering_id: event.target.value }))
-                  }
-                  className="w-full p-2 border rounded"
-                  disabled={!teachForm.term_id}
-                >
-                  <option value="">Select Offering</option>
-                  {offerings.map((offering) => (
-                    <option key={offering.id} value={offering.id}>
-                      #{offering.id} - {offering.course_code} - {offering.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Section</label>
-                <select
-                  required
-                  value={teachForm.section_name}
-                  onChange={(event) =>
-                    setTeachForm((prev) => ({ ...prev, section_name: event.target.value }))
-                  }
-                  className="w-full p-2 border rounded"
-                  disabled={!teachForm.term_id}
-                >
-                  <option value="">Select Section</option>
-                  {teachSections.map((section) => (
-                    <option key={`${section.term_id}-${section.name}`} value={section.name}>
-                      {section.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium mb-1">Teacher</label>
-                <select
-                  required
-                  value={teachForm.teacher_id}
-                  onChange={(event) =>
-                    setTeachForm((prev) => ({ ...prev, teacher_id: event.target.value }))
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Teacher</option>
-                  {teacherWithIdentity.map((teacher) => (
-                    <option key={teacher.user_id} value={teacher.user_id}>
-                      {teacher.display_name} ({teacher.appointment || "Teacher"}) [{teacher.department_code}]
-                    </option>
-                  ))}
-                </select>
-                {/* <p className="mt-1 text-xs text-gray-500">
-                  Cross-department teaching is allowed.
-                </p> */}
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(teachForm.replace_existing)}
-                    onChange={(event) =>
-                      setTeachForm((prev) => ({ ...prev, replace_existing: event.target.checked }))
-                    }
-                  />
-                  Replace existing assignment for the same offering + section
-                </label>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
-            >
-              Assign Teacher
-            </button>
-          </form>
-        )}
+        <TeachesSection
+          activeTab={activeTab}
+          showInsertion={showInsertion}
+          showInspection={showInspection}
+          handleTeachesSubmit={handleTeachesSubmit}
+          teachForm={teachForm}
+          setTeachForm={setTeachForm}
+          setOfferings={setOfferings}
+          departments={departments}
+          teachTerms={teachTerms}
+          loadTeachOfferings={loadTeachOfferings}
+          offerings={offerings}
+          teachSections={teachSections}
+          toggleTeachSection={toggleTeachSection}
+          teacherWithIdentity={teacherWithIdentity}
+          teachBatchResult={teachBatchResult}
+          teachInspection={teachInspection}
+          setTeachInspection={setTeachInspection}
+          sortedTerms={sortedTerms}
+          loadTeachingAssignments={loadTeachingAssignments}
+          filteredTeachingAssignments={filteredTeachingAssignments}
+          openInsights={openInsights}
+        />
       </div>
 
     </div>

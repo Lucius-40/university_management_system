@@ -3,6 +3,7 @@ const EnrollmentModel = require('../models/enrollmentModel.js');
 const CourseModel = require('../models/courseModel.js');
 const SectionModel = require('../models/sectionModel.js');
 const DB_Connection = require('../database/db.js');
+const bcrypt = require('bcryptjs');
 
 class StudentController {
     constructor() {
@@ -20,6 +21,206 @@ class StudentController {
         } catch (error) {
             console.error("Create Student error:", error);
             res.status(500).json({ error: error.message });
+        }
+    }
+
+    createStudentsBatch = async (req, res) => {
+        const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+        if (!rows.length) {
+            return res.status(400).json({ error: "rows array is required for batch import." });
+        }
+
+        const normalize = (value) => String(value ?? "").trim();
+        const getValue = (row, keys = []) => {
+            for (const key of keys) {
+                if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== "") {
+                    return row[key];
+                }
+            }
+            return "";
+        };
+
+        const client = await this.db.pool.connect();
+        const results = [];
+        let inserted = 0;
+
+        try {
+            const departmentsResult = await client.query(`SELECT id, code FROM departments;`);
+            const termsResult = await client.query(`SELECT id, term_number, department_id FROM terms;`);
+
+            const departmentByCode = new Map(
+                departmentsResult.rows.map((row) => [String(row.code || "").trim().toUpperCase(), row])
+            );
+
+            const termByDeptAndNumber = new Map(
+                termsResult.rows.map((row) => [`${row.department_id}-${row.term_number}`, row.id])
+            );
+
+            for (let index = 0; index < rows.length; index += 1) {
+                const source = rows[index] || {};
+                const rowNumber = index + 1;
+
+                const full_name = normalize(getValue(source, ["full_name", "name", "Full Name", "full name"]));
+                const roll_number = normalize(
+                    getValue(source, ["roll_number", "Roll Number", "roll number"])
+                ).toUpperCase();
+                const email = normalize(
+                    getValue(source, ["email", "personal_email", "Personal Email", "personal email"])
+                ).toLowerCase();
+                const official_mail = normalize(
+                    getValue(source, ["official_mail", "Official Email", "official email"])
+                ).toLowerCase();
+                const mobile_number = normalize(
+                    getValue(source, ["mobile_number", "Mobile Number", "mobile number"])
+                );
+                const birth_date = normalize(
+                    getValue(source, ["birth_date", "Birth Date", "birth date"])
+                );
+                const present_address = normalize(
+                    getValue(source, ["present_address", "Present Address", "present address"])
+                );
+                const permanent_address = normalize(
+                    getValue(source, ["permanent_address", "Permanent Address", "permanent address"])
+                );
+                const department_code = normalize(
+                    getValue(source, ["department_code", "Department Code", "department", "Department"])
+                ).toUpperCase();
+                const current_term_value = normalize(
+                    getValue(source, ["current_term", "Current Term", "current term", "term_number"])
+                );
+
+                const missing = [];
+                if (!full_name) missing.push("full_name");
+                if (!roll_number) missing.push("roll_number");
+                if (!email) missing.push("email");
+                if (!official_mail) missing.push("official_mail");
+                if (!mobile_number) missing.push("mobile_number");
+                if (!birth_date) missing.push("birth_date");
+                if (!present_address) missing.push("present_address");
+                if (!permanent_address) missing.push("permanent_address");
+                if (!department_code) missing.push("department_code");
+                if (!current_term_value) missing.push("current_term");
+
+                const term_number = Number(current_term_value);
+                if (!Number.isInteger(term_number) || term_number <= 0) {
+                    missing.push("current_term (must be a positive integer)");
+                }
+
+                const department = departmentByCode.get(department_code);
+                if (!department) {
+                    missing.push(`department_code (${department_code}) not found`);
+                }
+
+                const term_id = department
+                    ? termByDeptAndNumber.get(`${department.id}-${term_number}`)
+                    : null;
+
+                if (department && !term_id) {
+                    missing.push(`term ${term_number} not found for department ${department_code}`);
+                }
+
+                if (missing.length) {
+                    results.push({
+                        row: rowNumber,
+                        status: "failed",
+                        reason: `Validation failed: ${missing.join(", ")}`,
+                    });
+                    continue;
+                }
+
+                try {
+                    await client.query("BEGIN");
+
+                    const emailExists = await client.query(`SELECT 1 FROM users WHERE email = $1 LIMIT 1;`, [email]);
+                    if (emailExists.rows.length) {
+                        throw new Error(`User email already exists: ${email}`);
+                    }
+
+                    const rollExists = await client.query(`SELECT 1 FROM students WHERE roll_number = $1 LIMIT 1;`, [roll_number]);
+                    if (rollExists.rows.length) {
+                        throw new Error(`Roll number already exists: ${roll_number}`);
+                    }
+
+                    const officialExists = await client.query(
+                        `SELECT 1 FROM students WHERE official_mail = $1 LIMIT 1;`,
+                        [official_mail]
+                    );
+                    if (officialExists.rows.length) {
+                        throw new Error(`Official email already exists: ${official_mail}`);
+                    }
+
+                    const defaultPassword = `${roll_number}@Univ2026`;
+                    const saltRounds = Number(process.env.SALT_ROUND || 10);
+                    const password_hash = await bcrypt.hash(defaultPassword, saltRounds);
+
+                    const newUserResult = await client.query(
+                        `
+                            INSERT INTO users
+                                (name, mobile_number, email, password_hash, role, present_address, permanent_address, birth_date)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                            RETURNING id;
+                        `,
+                        [
+                            full_name,
+                            mobile_number,
+                            email,
+                            password_hash,
+                            "student",
+                            present_address,
+                            permanent_address,
+                            birth_date,
+                        ]
+                    );
+
+                    const user_id = newUserResult.rows[0].id;
+
+                    await client.query(
+                        `
+                            INSERT INTO initial_credentials (user_id, user_name, raw_password, has_changed)
+                            VALUES ($1, $2, $3, FALSE);
+                        `,
+                        [user_id, full_name, defaultPassword]
+                    );
+
+                    await client.query(
+                        `
+                            INSERT INTO students (user_id, roll_number, official_mail, status, current_term)
+                            VALUES ($1, $2, $3, $4, $5);
+                        `,
+                        [user_id, roll_number, official_mail, "Active", term_id]
+                    );
+
+                    await client.query("COMMIT");
+                    inserted += 1;
+                    results.push({
+                        row: rowNumber,
+                        status: "inserted",
+                        user_id,
+                        roll_number,
+                        email,
+                    });
+                } catch (rowError) {
+                    await client.query("ROLLBACK");
+                    results.push({
+                        row: rowNumber,
+                        status: "failed",
+                        reason: rowError.message,
+                    });
+                }
+            }
+
+            return res.status(200).json({
+                total: rows.length,
+                inserted,
+                failed: rows.length - inserted,
+                results,
+            });
+        } catch (error) {
+            console.error("Batch student import error:", error);
+            return res.status(500).json({ error: error.message });
+        } finally {
+            client.release();
         }
     }
 
@@ -563,6 +764,16 @@ class StudentController {
             console.error("Assign advisors by roll range error:", error);
             const statusCode = Number(error.statusCode) || 500;
             res.status(statusCode).json({ error: error.message });
+        }
+    }
+
+    getAdvisorAssignmentsForInspection = async (req, res) => {
+        try {
+            const rows = await this.studentModel.getAdvisorAssignmentsForInspection(req.query || {});
+            res.status(200).json({ assignments: rows || [] });
+        } catch (error) {
+            console.error("Get advisor assignments for inspection error:", error);
+            res.status(500).json({ error: error.message });
         }
     }
 

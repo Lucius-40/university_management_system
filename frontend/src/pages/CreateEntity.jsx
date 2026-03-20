@@ -1,6 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { sortTermsDepartment } from "../utils/termSort";
+import ModeToggle from "./createEntity/ModeToggle";
+import TeacherSection from "./createEntity/TeacherSection";
+import StudentSection from "./createEntity/StudentSection";
+import AdvisorSection from "./createEntity/AdvisorSection";
+import SectionAssignSection from "./createEntity/SectionAssignSection";
+import BatchStudentSection from "./createEntity/BatchStudentSection";
+import BatchTeacherSection from "./createEntity/BatchTeacherSection";
+
+const BATCH_CHUNK_SIZE = 40;
+
+const getResolvedEntityTab = (tab) => {
+  if (tab === "batch-student") return "student";
+  if (tab === "batch-teacher") return "teacher";
+  return tab;
+};
+
+const getDefaultMode = (tab) => {
+  if (tab === "batch-student" || tab === "batch-teacher") return "batch";
+  return "insertion";
+};
 
 const getTeacherDisplayName = (teacher) => {
   const value =
@@ -13,17 +34,63 @@ const getTeacherDisplayName = (teacher) => {
   return "Unknown Teacher";
 };
 
+const extractRollSuffix = (value) => {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  const suffix = Number(digits.slice(-3));
+  if (!Number.isInteger(suffix)) return null;
+  return suffix;
+};
+
 const CreateEntity = ({ initialTab = "student" }) => {
-  const activeTab = initialTab;
+  const navigate = useNavigate();
+  const activeTab = getResolvedEntityTab(initialTab);
+  const [activeMode, setActiveMode] = useState(getDefaultMode(initialTab));
   const [departments, setDepartments] = useState([]);
   const [terms, setTerms] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [sections, setSections] = useState([]);
+  const [inspectLoading, setInspectLoading] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
   const [advisorSummary, setAdvisorSummary] = useState(null);
   const [advisorAssigning, setAdvisorAssigning] = useState(false);
   const [sectionSummary, setSectionSummary] = useState(null);
   const [sectionAssigning, setSectionAssigning] = useState(false);
+  const [teacherInspectionRows, setTeacherInspectionRows] = useState([]);
+  const [studentInspectionRows, setStudentInspectionRows] = useState([]);
+  const [advisorInspectionRows, setAdvisorInspectionRows] = useState([]);
+  const [sectionInspectionRows, setSectionInspectionRows] = useState([]);
+  const [batchStudentLoading, setBatchStudentLoading] = useState(false);
+  const [batchTeacherLoading, setBatchTeacherLoading] = useState(false);
+  const [batchStudentResult, setBatchStudentResult] = useState(null);
+  const [batchTeacherResult, setBatchTeacherResult] = useState(null);
+
+  const [teacherInspectFilters, setTeacherInspectFilters] = useState({
+    department_id: "",
+    appointment: "",
+    search: "",
+  });
+
+  const [studentInspectFilters, setStudentInspectFilters] = useState({
+    department_id: "",
+    term_id: "",
+    section: "",
+    search: "",
+  });
+
+  const [advisorInspectFilters, setAdvisorInspectFilters] = useState({
+    department_id: "",
+    term_id: "",
+    teacher_id: "",
+    search: "",
+  });
+
+  const [sectionInspectFilters, setSectionInspectFilters] = useState({
+    department_id: "",
+    term_id: "",
+    section_name: "",
+    search: "",
+  });
 
   const [teacherForm, setTeacherForm] = useState({
     name: "",
@@ -104,6 +171,213 @@ const CreateEntity = ({ initialTab = "student" }) => {
       );
   }, [advisorForm.department_id, teachers]);
 
+  const appointmentOptions = useMemo(() => {
+    return [...new Set(teacherInspectionRows.map((row) => row.appointment).filter(Boolean))].sort(
+      (left, right) => String(left).localeCompare(String(right))
+    );
+  }, [teacherInspectionRows]);
+
+  const studentInspectTerms = useMemo(() => {
+    if (!studentInspectFilters.department_id) return sortedTerms;
+    return sortedTerms.filter(
+      (term) => String(term.department_id) === String(studentInspectFilters.department_id)
+    );
+  }, [sortedTerms, studentInspectFilters.department_id]);
+
+  const studentInspectSections = useMemo(() => {
+    const names = new Set();
+
+    studentInspectionRows.forEach((row) => {
+      const matchesDepartment =
+        !studentInspectFilters.department_id ||
+        Number(row.department_id) === Number(studentInspectFilters.department_id);
+      const matchesTerm =
+        !studentInspectFilters.term_id || Number(row.term_id) === Number(studentInspectFilters.term_id);
+
+      if (!matchesDepartment || !matchesTerm) return;
+
+      String(row.section_names || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((value) => names.add(value));
+    });
+
+    return [...names].sort((left, right) => left.localeCompare(right));
+  }, [studentInspectionRows, studentInspectFilters.department_id, studentInspectFilters.term_id]);
+
+  const filteredTeacherInspectionRows = useMemo(() => {
+    const q = String(teacherInspectFilters.search || "").toLowerCase().trim();
+
+    return teacherInspectionRows
+      .filter((row) => {
+        const matchesDepartment =
+          !teacherInspectFilters.department_id ||
+          Number(row.department_id) === Number(teacherInspectFilters.department_id);
+        const matchesAppointment =
+          !teacherInspectFilters.appointment ||
+          String(row.appointment || "") === String(teacherInspectFilters.appointment);
+
+        if (!matchesDepartment || !matchesAppointment) return false;
+        if (!q) return true;
+
+        return (
+          String(row.full_name || "").toLowerCase().includes(q) ||
+          String(row.official_mail || "").toLowerCase().includes(q) ||
+          String(row.department_code || "").toLowerCase().includes(q) ||
+          String(row.appointment || "").toLowerCase().includes(q)
+        );
+      })
+      .sort((left, right) =>
+        String(left.full_name || "").localeCompare(String(right.full_name || ""))
+      );
+  }, [teacherInspectionRows, teacherInspectFilters]);
+
+  const filteredStudentInspectionRows = useMemo(() => {
+    const q = String(studentInspectFilters.search || "").toLowerCase().trim();
+
+    return studentInspectionRows
+      .filter((row) => {
+        const matchesDepartment =
+          !studentInspectFilters.department_id ||
+          Number(row.department_id) === Number(studentInspectFilters.department_id);
+        const matchesTerm =
+          !studentInspectFilters.term_id || Number(row.term_id) === Number(studentInspectFilters.term_id);
+
+        const sectionNames = String(row.section_names || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        const matchesSection = !studentInspectFilters.section || sectionNames.includes(studentInspectFilters.section);
+
+        if (!matchesDepartment || !matchesTerm || !matchesSection) return false;
+        if (!q) return true;
+
+        return (
+          String(row.full_name || "").toLowerCase().includes(q) ||
+          String(row.roll_number || "").toLowerCase().includes(q) ||
+          String(row.department_code || "").toLowerCase().includes(q) ||
+          sectionNames.some((value) => value.toLowerCase().includes(q))
+        );
+      })
+      .sort((left, right) => {
+        const leftTerm = Number(left.term_number || 0);
+        const rightTerm = Number(right.term_number || 0);
+        if (leftTerm !== rightTerm) return leftTerm - rightTerm;
+        return String(left.roll_number || "").localeCompare(String(right.roll_number || ""));
+      });
+  }, [studentInspectionRows, studentInspectFilters]);
+
+  const filteredAdvisorInspectionRows = useMemo(() => {
+    const q = String(advisorInspectFilters.search || "").toLowerCase().trim();
+    return advisorInspectionRows.filter((row) => {
+      if (!q) return true;
+      return (
+        String(row.advisor_name || "").toLowerCase().includes(q) ||
+        String(row.student_name || "").toLowerCase().includes(q) ||
+        String(row.roll_number || "").toLowerCase().includes(q) ||
+        String(row.department_code || "").toLowerCase().includes(q)
+      );
+    });
+  }, [advisorInspectionRows, advisorInspectFilters.search]);
+
+  const groupedAdvisorInspection = useMemo(() => {
+    const advisorMap = new Map();
+
+    filteredAdvisorInspectionRows.forEach((row) => {
+      const advisorKey = String(row.teacher_id);
+      if (!advisorMap.has(advisorKey)) {
+        advisorMap.set(advisorKey, {
+          teacher_id: row.teacher_id,
+          advisor_name: row.advisor_name,
+          advisor_appointment: row.advisor_appointment,
+          department_id: row.department_id,
+          department_code: row.department_code,
+          terms: new Map(),
+        });
+      }
+
+      const advisorEntry = advisorMap.get(advisorKey);
+      const termKey = String(row.term_id);
+      if (!advisorEntry.terms.has(termKey)) {
+        advisorEntry.terms.set(termKey, {
+          term_id: row.term_id,
+          term_number: row.term_number,
+          students: [],
+        });
+      }
+
+      advisorEntry.terms.get(termKey).students.push({
+        student_id: row.student_id,
+        student_name: row.student_name,
+        roll_number: row.roll_number,
+      });
+    });
+
+    return [...advisorMap.values()]
+      .map((advisorEntry) => ({
+        ...advisorEntry,
+        terms: [...advisorEntry.terms.values()].sort(
+          (left, right) => Number(left.term_number) - Number(right.term_number)
+        ),
+      }))
+      .sort((left, right) => String(left.advisor_name || "").localeCompare(String(right.advisor_name || "")));
+  }, [filteredAdvisorInspectionRows]);
+
+  const filteredSectionInspectionRows = useMemo(() => {
+    const q = String(sectionInspectFilters.search || "").toLowerCase().trim();
+    return sectionInspectionRows.filter((row) => {
+      if (!q) return true;
+      return (
+        String(row.section_name || "").toLowerCase().includes(q) ||
+        String(row.student_name || "").toLowerCase().includes(q) ||
+        String(row.roll_number || "").toLowerCase().includes(q) ||
+        String(row.department_code || "").toLowerCase().includes(q)
+      );
+    });
+  }, [sectionInspectionRows, sectionInspectFilters.search]);
+
+  const groupedSectionInspection = useMemo(() => {
+    const sectionMap = new Map();
+
+    filteredSectionInspectionRows.forEach((row) => {
+      const sectionKey = `${row.department_id}-${row.section_name}`;
+      if (!sectionMap.has(sectionKey)) {
+        sectionMap.set(sectionKey, {
+          department_id: row.department_id,
+          section_name: row.section_name,
+          department_code: row.department_code,
+          terms: new Map(),
+        });
+      }
+
+      const sectionEntry = sectionMap.get(sectionKey);
+      const termKey = String(row.term_id);
+      if (!sectionEntry.terms.has(termKey)) {
+        sectionEntry.terms.set(termKey, {
+          term_id: row.term_id,
+          term_number: row.term_number,
+          students: [],
+        });
+      }
+
+      sectionEntry.terms.get(termKey).students.push({
+        student_id: row.student_id,
+        student_name: row.student_name,
+        roll_number: row.roll_number,
+      });
+    });
+
+    return [...sectionMap.values()]
+      .map((entry) => ({
+        ...entry,
+        terms: [...entry.terms.values()].sort(
+          (left, right) => Number(left.term_number) - Number(right.term_number)
+        ),
+      }))
+      .sort((left, right) => String(left.section_name || "").localeCompare(String(right.section_name || "")));
+  }, [filteredSectionInspectionRows]);
+
   useEffect(() => {
     Promise.all([
       api.get("/departments"),
@@ -125,9 +399,6 @@ const CreateEntity = ({ initialTab = "student" }) => {
 
         const teacherRows = teacherResponse.data || [];
         const teacherInspectRows = teacherInspectResponse.data || [];
-
-        // console.log(teacherInspectResponse);
-        
 
         const teacherMap = new Map();
 
@@ -164,13 +435,115 @@ const CreateEntity = ({ initialTab = "student" }) => {
       });
   }, []);
 
+  useEffect(() => {
+    setActiveMode(getDefaultMode(initialTab));
+  }, [initialTab]);
+
+  const supportsModeToggle = true;
+  const supportsBatchMode = activeTab === "student" || activeTab === "teacher";
+
+  const loadTeacherInspection = async () => {
+    setInspectLoading(true);
+    try {
+      const response = await api.get("/users/inspect", { params: { identity: "teacher" } });
+      setTeacherInspectionRows(response.data || []);
+    } catch (error) {
+      setTeacherInspectionRows([]);
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to load teacher inspection data.",
+      });
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  const loadStudentInspection = async () => {
+    setInspectLoading(true);
+    try {
+      const response = await api.get("/users/inspect", { params: { identity: "student" } });
+      setStudentInspectionRows(response.data || []);
+    } catch (error) {
+      setStudentInspectionRows([]);
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to load student inspection data.",
+      });
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  const loadAdvisorInspection = async () => {
+    setInspectLoading(true);
+    try {
+      const response = await api.get("/students/advisors/inspect", {
+        params: {
+          department_id: advisorInspectFilters.department_id || undefined,
+          term_id: advisorInspectFilters.term_id || undefined,
+          teacher_id: advisorInspectFilters.teacher_id || undefined,
+        },
+      });
+      setAdvisorInspectionRows(response.data?.assignments || []);
+    } catch (error) {
+      setAdvisorInspectionRows([]);
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to load advisor inspection data.",
+      });
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  const loadSectionInspection = async () => {
+    setInspectLoading(true);
+    try {
+      const response = await api.get("/sections/assignments/inspect", {
+        params: {
+          department_id: sectionInspectFilters.department_id || undefined,
+          term_id: sectionInspectFilters.term_id || undefined,
+          section_name: sectionInspectFilters.section_name || undefined,
+        },
+      });
+      setSectionInspectionRows(response.data?.assignments || []);
+    } catch (error) {
+      setSectionInspectionRows([]);
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to load section assignment inspection data.",
+      });
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeMode !== "inspection") return;
+
+    if (activeTab === "teacher") {
+      loadTeacherInspection();
+    }
+    if (activeTab === "student") {
+      loadStudentInspection();
+    }
+    if (activeTab === "advisor") {
+      loadAdvisorInspection();
+    }
+    if (activeTab === "section-assign") {
+      loadSectionInspection();
+    }
+  }, [activeMode, activeTab]);
+
   const handleSectionAssign = async (event) => {
     event.preventDefault();
     setMessage({ type: "", text: "" });
     setSectionSummary(null);
 
-    const rollStartNumber = Number(sectionForm.roll_start);
-    const rollEndNumber = Number(sectionForm.roll_end);
+    const rawRollStart = String(sectionForm.roll_start || "").trim();
+    const rawRollEnd = String(sectionForm.roll_end || "").trim();
+    const rollStartNumber = extractRollSuffix(rawRollStart);
+    const rollEndNumber = extractRollSuffix(rawRollEnd);
 
     if (!sectionForm.department_id || !sectionForm.term_id || !sectionForm.section_name) {
       setMessage({ type: "error", text: "Department, term, and section are required." });
@@ -178,7 +551,10 @@ const CreateEntity = ({ initialTab = "student" }) => {
     }
 
     if (!Number.isInteger(rollStartNumber) || !Number.isInteger(rollEndNumber)) {
-      setMessage({ type: "error", text: "Roll start and roll end must be whole numbers." });
+      setMessage({
+        type: "error",
+        text: "Roll start and roll end must contain digits (for example CSE2305160 or 160).",
+      });
       return;
     }
 
@@ -188,7 +564,7 @@ const CreateEntity = ({ initialTab = "student" }) => {
     }
 
     const confirmed = window.confirm(
-      `Assign section ${sectionForm.section_name} to roll range ${rollStartNumber} to ${rollEndNumber}? Existing section mappings for matched students may be overwritten.`
+      `Assign section ${sectionForm.section_name} to roll range ${rawRollStart} to ${rawRollEnd}? (Matched by last 3 digits: ${rollStartNumber}-${rollEndNumber}) Existing section mappings for matched students may be overwritten.`
     );
 
     if (!confirmed) return;
@@ -200,8 +576,8 @@ const CreateEntity = ({ initialTab = "student" }) => {
         department_id: Number(sectionForm.department_id),
         term_id: Number(sectionForm.term_id),
         section_name: sectionForm.section_name,
-        roll_start: rollStartNumber,
-        roll_end: rollEndNumber,
+        roll_start: rawRollStart,
+        roll_end: rawRollEnd,
       };
 
       const response = await api.post("/sections/assign-range", payload);
@@ -385,6 +761,106 @@ const CreateEntity = ({ initialTab = "student" }) => {
     }
   };
 
+  const handleBatchStudentSubmit = async (rows) => {
+    setMessage({ type: "", text: "" });
+    setBatchStudentResult(null);
+
+    try {
+      setBatchStudentLoading(true);
+      const chunkCount = Math.ceil(rows.length / BATCH_CHUNK_SIZE);
+      let inserted = 0;
+      const results = [];
+
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        const start = chunkIndex * BATCH_CHUNK_SIZE;
+        const end = start + BATCH_CHUNK_SIZE;
+        const chunkRows = rows.slice(start, end);
+        const response = await api.post("/students/batch", { rows: chunkRows });
+        const chunkData = response.data || {};
+
+        inserted += Number(chunkData.inserted || 0);
+
+        const chunkResults = Array.isArray(chunkData.results) ? chunkData.results : [];
+        for (const item of chunkResults) {
+          results.push({
+            ...item,
+            row: Number(item.row || 0) + start,
+          });
+        }
+      }
+
+      const mergedResult = {
+        total: rows.length,
+        inserted,
+        failed: rows.length - inserted,
+        results,
+      };
+
+      setBatchStudentResult(mergedResult);
+      setMessage({
+        type: "success",
+        text: `Student batch import completed in ${chunkCount} request(s). Inserted ${mergedResult.inserted} of ${mergedResult.total}.`,
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to import students in batch.",
+      });
+    } finally {
+      setBatchStudentLoading(false);
+    }
+  };
+
+  const handleBatchTeacherSubmit = async (rows) => {
+    setMessage({ type: "", text: "" });
+    setBatchTeacherResult(null);
+
+    try {
+      setBatchTeacherLoading(true);
+      const chunkCount = Math.ceil(rows.length / BATCH_CHUNK_SIZE);
+      let inserted = 0;
+      const results = [];
+
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        const start = chunkIndex * BATCH_CHUNK_SIZE;
+        const end = start + BATCH_CHUNK_SIZE;
+        const chunkRows = rows.slice(start, end);
+        const response = await api.post("/teachers/batch", { rows: chunkRows });
+        const chunkData = response.data || {};
+
+        inserted += Number(chunkData.inserted || 0);
+
+        const chunkResults = Array.isArray(chunkData.results) ? chunkData.results : [];
+        for (const item of chunkResults) {
+          results.push({
+            ...item,
+            row: Number(item.row || 0) + start,
+          });
+        }
+      }
+
+      const mergedResult = {
+        total: rows.length,
+        inserted,
+        failed: rows.length - inserted,
+        results,
+      };
+
+      setBatchTeacherResult(mergedResult);
+      setMessage({
+        type: "success",
+        text: `Teacher batch import completed in ${chunkCount} request(s). Inserted ${mergedResult.inserted} of ${mergedResult.total}.`,
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to import teachers in batch.",
+      });
+    } finally {
+      setBatchTeacherLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold text-gray-800 mb-6">Entity Provisioning</h1>
@@ -400,562 +876,104 @@ const CreateEntity = ({ initialTab = "student" }) => {
       )}
 
       <div className="bg-white p-6 rounded-lg shadow-sm border">
-        {activeTab === "teacher" && (
-          <form onSubmit={handleTeacherSubmit} className="space-y-4">
-            <h2 className="text-xl font-semibold mb-4">Register Teacher</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Full Name</label>
-                <input
-                  required
-                  type="text"
-                  value={teacherForm.name}
-                  onChange={(event) => setTeacherForm({ ...teacherForm, name: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Personal Email</label>
-                <input
-                  required
-                  type="email"
-                  value={teacherForm.email}
-                  onChange={(event) => setTeacherForm({ ...teacherForm, email: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Official Email</label>
-                <input
-                  type="email"
-                  value={teacherForm.official_mail}
-                  onChange={(event) =>
-                    setTeacherForm({ ...teacherForm, official_mail: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Mobile Number</label>
-                <input
-                  required
-                  type="text"
-                  value={teacherForm.mobile_number}
-                  onChange={(event) =>
-                    setTeacherForm({ ...teacherForm, mobile_number: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Present Address</label>
-                <input
-                  required
-                  type="text"
-                  value={teacherForm.present_address}
-                  onChange={(event) =>
-                    setTeacherForm({ ...teacherForm, present_address: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Permanent Address</label>
-                <input
-                  required
-                  type="text"
-                  value={teacherForm.permanent_address}
-                  onChange={(event) =>
-                    setTeacherForm({ ...teacherForm, permanent_address: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Birth Date</label>
-                <input
-                  required
-                  type="date"
-                  value={teacherForm.birth_date}
-                  onChange={(event) => setTeacherForm({ ...teacherForm, birth_date: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Department</label>
-                <select
-                  required
-                  value={teacherForm.department_id}
-                  onChange={(event) =>
-                    setTeacherForm({ ...teacherForm, department_id: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Department</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.code} - {department.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Appointment Type</label>
-                <select
-                  required
-                  value={teacherForm.appointment}
-                  onChange={(event) =>
-                    setTeacherForm({ ...teacherForm, appointment: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="Professor">Professor</option>
-                  <option value="Assistant Professor">Assistant Professor</option>
-                  <option value="Lecturer">Lecturer</option>
-                  <option value="Adjunct Faculty">Adjunct Faculty</option>
-                </select>
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700"
-            >
-              Register Teacher
-            </button>
-          </form>
+        {supportsModeToggle && (
+          <ModeToggle
+            activeMode={activeMode}
+            setActiveMode={setActiveMode}
+            includeBatch={supportsBatchMode}
+          />
         )}
 
-        {activeTab === "student" && (
-          <form onSubmit={handleStudentSubmit} className="space-y-4">
-            <h2 className="text-xl font-semibold mb-4">Register Student</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Full Name</label>
-                <input
-                  required
-                  type="text"
-                  value={studentForm.name}
-                  onChange={(event) => setStudentForm({ ...studentForm, name: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Roll Number</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="CSE2024003"
-                  value={studentForm.roll_number}
-                  onChange={(event) =>
-                    setStudentForm({ ...studentForm, roll_number: event.target.value.toUpperCase() })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Personal Mail (Email)</label>
-                <input
-                  required
-                  type="email"
-                  value={studentForm.email}
-                  onChange={(event) => setStudentForm({ ...studentForm, email: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Official Mail</label>
-                <input
-                  required
-                  type="email"
-                  value={studentForm.official_mail}
-                  onChange={(event) =>
-                    setStudentForm({ ...studentForm, official_mail: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Mobile Number</label>
-                <input
-                  required
-                  type="text"
-                  value={studentForm.mobile_number}
-                  onChange={(event) =>
-                    setStudentForm({ ...studentForm, mobile_number: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Birth Date</label>
-                <input
-                  required
-                  type="date"
-                  value={studentForm.birth_date}
-                  onChange={(event) => setStudentForm({ ...studentForm, birth_date: event.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Present Address</label>
-                <input
-                  required
-                  type="text"
-                  value={studentForm.present_address}
-                  onChange={(event) =>
-                    setStudentForm({ ...studentForm, present_address: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Permanent Address</label>
-                <input
-                  required
-                  type="text"
-                  value={studentForm.permanent_address}
-                  onChange={(event) =>
-                    setStudentForm({ ...studentForm, permanent_address: event.target.value })
-                  }
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Department Code</label>
-                <select
-                  required
-                  value={studentForm.department_id}
-                  onChange={(event) =>
-                    setStudentForm({
-                      ...studentForm,
-                      department_id: event.target.value,
-                      current_term: "",
-                    })
-                  }
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select Department</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Current Term </label>
-                <select
-                  required
-                  value={studentForm.current_term}
-                  onChange={(event) => setStudentForm({ ...studentForm, current_term: event.target.value })}
-                  className="w-full p-2 border rounded"
-                  disabled={!studentForm.department_id}
-                >
-                  <option value="">Select Term</option>
-                  {studentTerms.map((term) => (
-                    <option key={term.id} value={term.id}>
-                      Term {term.term_number}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700"
-            >
-              Register Student
-            </button>
-          </form>
-        )}
+        <TeacherSection
+          activeMode={activeMode}
+          activeTab={activeTab}
+          inspectLoading={inspectLoading}
+          departments={departments}
+          teacherInspectFilters={teacherInspectFilters}
+          setTeacherInspectFilters={setTeacherInspectFilters}
+          appointmentOptions={appointmentOptions}
+          filteredTeacherInspectionRows={filteredTeacherInspectionRows}
+          navigate={navigate}
+          handleTeacherSubmit={handleTeacherSubmit}
+          teacherForm={teacherForm}
+          setTeacherForm={setTeacherForm}
+        />
 
-        {activeTab === "advisor" && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Assign Advisors By Roll Range</h2>
-            <p className="text-sm text-gray-600">
-              This updates advisor history in bulk. Existing active advisors are closed and new advisor rows are opened.
-            </p>
+        <StudentSection
+          activeMode={activeMode}
+          activeTab={activeTab}
+          inspectLoading={inspectLoading}
+          departments={departments}
+          studentInspectFilters={studentInspectFilters}
+          setStudentInspectFilters={setStudentInspectFilters}
+          studentInspectTerms={studentInspectTerms}
+          studentInspectSections={studentInspectSections}
+          filteredStudentInspectionRows={filteredStudentInspectionRows}
+          navigate={navigate}
+          handleStudentSubmit={handleStudentSubmit}
+          studentForm={studentForm}
+          setStudentForm={setStudentForm}
+          studentTerms={studentTerms}
+        />
 
-            <form onSubmit={handleAdvisorAssign} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Department</label>
-                  <select
-                    required
-                    value={advisorForm.department_id}
-                    onChange={(event) =>
-                      setAdvisorForm((prev) => ({
-                        ...prev,
-                        department_id: event.target.value,
-                        term_id: "",
-                        teacher_id: "",
-                      }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={advisorAssigning}
-                  >
-                    <option value="">Select Department</option>
-                    {departments.map((department) => (
-                      <option key={department.id} value={department.id}>
-                        {department.code} - {department.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+        <AdvisorSection
+          activeMode={activeMode}
+          activeTab={activeTab}
+          inspectLoading={inspectLoading}
+          departments={departments}
+          sortedTerms={sortedTerms}
+          teachers={teachers}
+          getTeacherDisplayName={getTeacherDisplayName}
+          advisorInspectFilters={advisorInspectFilters}
+          setAdvisorInspectFilters={setAdvisorInspectFilters}
+          loadAdvisorInspection={loadAdvisorInspection}
+          groupedAdvisorInspection={groupedAdvisorInspection}
+          navigate={navigate}
+          handleAdvisorAssign={handleAdvisorAssign}
+          advisorForm={advisorForm}
+          setAdvisorForm={setAdvisorForm}
+          advisorAssigning={advisorAssigning}
+          advisorTerms={advisorTerms}
+          advisorTeachers={advisorTeachers}
+          advisorSummary={advisorSummary}
+        />
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Term</label>
-                  <select
-                    required
-                    value={advisorForm.term_id}
-                    onChange={(event) =>
-                      setAdvisorForm((prev) => ({ ...prev, term_id: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={!advisorForm.department_id || advisorAssigning}
-                  >
-                    <option value="">Select Term</option>
-                    {advisorTerms.map((term) => (
-                      <option key={term.id} value={term.id}>
-                        Term {term.term_number}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+        <SectionAssignSection
+          activeMode={activeMode}
+          activeTab={activeTab}
+          inspectLoading={inspectLoading}
+          departments={departments}
+          sortedTerms={sortedTerms}
+          sections={sections}
+          sectionInspectFilters={sectionInspectFilters}
+          setSectionInspectFilters={setSectionInspectFilters}
+          loadSectionInspection={loadSectionInspection}
+          groupedSectionInspection={groupedSectionInspection}
+          navigate={navigate}
+          handleSectionAssign={handleSectionAssign}
+          sectionForm={sectionForm}
+          setSectionForm={setSectionForm}
+          sectionAssigning={sectionAssigning}
+          sectionTerms={sectionTerms}
+          sectionOptions={sectionOptions}
+          sectionSummary={sectionSummary}
+        />
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Advisor Teacher</label>
-                  <select
-                    required
-                    value={advisorForm.teacher_id}
-                    onChange={(event) =>
-                      setAdvisorForm((prev) => ({ ...prev, teacher_id: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={!advisorForm.department_id || advisorAssigning}
-                  >
-                    <option value="">Select Teacher</option>
-                    {advisorTeachers.map((teacher) => (
-                      <option key={teacher.user_id} value={teacher.user_id}>
-                        {getTeacherDisplayName(teacher)} ({teacher.appointment || "Teacher"})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+        <BatchStudentSection
+          activeTab={activeTab}
+          activeMode={activeMode}
+          loading={batchStudentLoading}
+          result={batchStudentResult}
+          onSubmit={handleBatchStudentSubmit}
+        />
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Start Date (Optional)</label>
-                  <input
-                    type="date"
-                    value={advisorForm.start_date}
-                    onChange={(event) =>
-                      setAdvisorForm((prev) => ({ ...prev, start_date: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={advisorAssigning}
-                  />
-                  <p className="mt-1 text-xs text-gray-500">If empty, selected term start date will be used.</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Roll Start</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    value={advisorForm.roll_start}
-                    onChange={(event) =>
-                      setAdvisorForm((prev) => ({ ...prev, roll_start: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={advisorAssigning}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Roll End</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    value={advisorForm.roll_end}
-                    onChange={(event) =>
-                      setAdvisorForm((prev) => ({ ...prev, roll_end: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={advisorAssigning}
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">Reason (Optional)</label>
-                  <input
-                    type="text"
-                    value={advisorForm.change_reason}
-                    onChange={(event) =>
-                      setAdvisorForm((prev) => ({ ...prev, change_reason: event.target.value }))
-                    }
-                    placeholder="Example: Initial advisor allocation"
-                    className="w-full p-2 border rounded"
-                    disabled={advisorAssigning}
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={advisorAssigning}
-                className="bg-slate-800 text-white px-6 py-2 rounded hover:bg-slate-900 disabled:bg-slate-400"
-              >
-                {advisorAssigning ? "Assigning..." : "Assign Advisors"}
-              </button>
-            </form>
-
-            {advisorSummary && (
-              <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <h3 className="font-semibold text-slate-900 mb-2">Last Assignment Summary</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <p>Matched students: <span className="font-semibold">{advisorSummary.matched_students ?? 0}</span></p>
-                  <p>Assigned: <span className="font-semibold">{advisorSummary.assigned_count ?? 0}</span></p>
-                  <p>Skipped (same advisor): <span className="font-semibold">{advisorSummary.skipped_same_advisor_count ?? 0}</span></p>
-                  <p>Invalid roll format: <span className="font-semibold">{advisorSummary.invalid_roll_format_count ?? 0}</span></p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === "section-assign" && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Assign Sections By Roll Range</h2>
-            <p className="text-sm text-gray-600">
-              This maintains one section mapping per student. No section history is kept.
-            </p>
-
-            <form onSubmit={handleSectionAssign} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Department</label>
-                  <select
-                    required
-                    value={sectionForm.department_id}
-                    onChange={(event) =>
-                      setSectionForm((prev) => ({
-                        ...prev,
-                        department_id: event.target.value,
-                        term_id: "",
-                        section_name: "",
-                      }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={sectionAssigning}
-                  >
-                    <option value="">Select Department</option>
-                    {departments.map((department) => (
-                      <option key={department.id} value={department.id}>
-                        {department.code} - {department.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Term</label>
-                  <select
-                    required
-                    value={sectionForm.term_id}
-                    onChange={(event) =>
-                      setSectionForm((prev) => ({
-                        ...prev,
-                        term_id: event.target.value,
-                        section_name: "",
-                      }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={!sectionForm.department_id || sectionAssigning}
-                  >
-                    <option value="">Select Term</option>
-                    {sectionTerms.map((term) => (
-                      <option key={term.id} value={term.id}>
-                        Term {term.term_number}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Section</label>
-                  <select
-                    required
-                    value={sectionForm.section_name}
-                    onChange={(event) =>
-                      setSectionForm((prev) => ({ ...prev, section_name: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={!sectionForm.term_id || sectionAssigning}
-                  >
-                    <option value="">Select Section</option>
-                    {sectionOptions.map((section) => (
-                      <option key={`${section.term_id}-${section.name}`} value={section.name}>
-                        {section.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Roll Start</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    value={sectionForm.roll_start}
-                    onChange={(event) =>
-                      setSectionForm((prev) => ({ ...prev, roll_start: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={sectionAssigning}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Roll End</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    value={sectionForm.roll_end}
-                    onChange={(event) =>
-                      setSectionForm((prev) => ({ ...prev, roll_end: event.target.value }))
-                    }
-                    className="w-full p-2 border rounded"
-                    disabled={sectionAssigning}
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={sectionAssigning}
-                className="bg-slate-800 text-white px-6 py-2 rounded hover:bg-slate-900 disabled:bg-slate-400"
-              >
-                {sectionAssigning ? "Assigning..." : "Assign Sections"}
-              </button>
-            </form>
-
-            {sectionSummary && (
-              <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <h3 className="font-semibold text-slate-900 mb-2">Last Assignment Summary</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <p>Matched students: <span className="font-semibold">{sectionSummary.matched_students ?? 0}</span></p>
-                  <p>Assigned: <span className="font-semibold">{sectionSummary.assigned_count ?? 0}</span></p>
-                  <p>Unchanged: <span className="font-semibold">{sectionSummary.unchanged_count ?? 0}</span></p>
-                  <p>Invalid roll format: <span className="font-semibold">{sectionSummary.invalid_roll_format_count ?? 0}</span></p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <BatchTeacherSection
+          activeTab={activeTab}
+          activeMode={activeMode}
+          loading={batchTeacherLoading}
+          result={batchTeacherResult}
+          onSubmit={handleBatchTeacherSubmit}
+        />
       </div>
     </div>
   );

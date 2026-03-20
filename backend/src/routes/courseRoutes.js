@@ -7,6 +7,7 @@ const courseController = new CourseController();
 const auth = new AuthenticateToken();
 
 router.post('/', auth.authenticateToken, courseController.createCourse);
+router.post('/batch', auth.authenticateToken, courseController.createCoursesBatch);
 router.get('/', auth.authenticateToken, courseController.getAllCourses);
 
 router.post('/offerings', auth.authenticateToken, courseController.createCourseOffering);

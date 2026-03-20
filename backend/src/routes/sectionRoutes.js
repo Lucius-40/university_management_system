@@ -8,6 +8,7 @@ const auth = new AuthenticateToken();
 
 router.post('/', auth.authenticateToken, sectionController.createSection);
 router.post('/assign-range', auth.authenticateToken, sectionController.assignStudentsByRollRange);
+router.get('/assignments/inspect', auth.authenticateToken, sectionController.getSectionAssignmentsForInspection);
 router.get('/', auth.authenticateToken, sectionController.getAllSections);
 router.get('/term/:term_id', auth.authenticateToken, sectionController.getSectionsByTermId);
 router.put('/', auth.authenticateToken, sectionController.updateSection);

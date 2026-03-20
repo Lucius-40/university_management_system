@@ -10,15 +10,13 @@ const INITIAL_LIMIT = 10;
 const EMPTY_ARRAY = [];
 
 const teacherRankWeight = (teacher) => {
-  const designation = String(teacher.designation || "").toLowerCase();
   const appointment = String(teacher.appointment || "").toLowerCase();
-  const value = designation || appointment;
 
-  if (value.includes("department head")) return 1;
-  if (value.includes("professor") && !value.includes("assistant")) return 2;
-  if (value.includes("assistant professor")) return 3;
-  if (value.includes("lecturer")) return 4;
-  if (value.includes("adjunct")) return 5;
+  if (appointment.includes("department head")) return 1;
+  if (appointment.includes("professor") && !appointment.includes("assistant")) return 2;
+  if (appointment.includes("assistant professor")) return 3;
+  if (appointment.includes("lecturer")) return 4;
+  if (appointment.includes("adjunct")) return 5;
   return 6;
 };
 
@@ -74,8 +72,6 @@ const DepartmentDetails = () => {
           const cachedPayload = JSON.parse(cached);
           setPayload(cachedPayload);
           await fetchHeadData(Number(cachedPayload?.department?.id || 0));
-          setIsLoading(false);
-          return;
         }
       }
 
@@ -229,7 +225,7 @@ const DepartmentDetails = () => {
         <p className="text-red-600 font-medium">{error}</p>
         <button
           type="button"
-          onClick={() => navigate("/admin/dashboard/inspection/departments")}
+          onClick={() => navigate("/admin/dashboard/departments")}
           className="mt-4 inline-flex items-center gap-2 text-blue-600 hover:underline"
         >
           <ArrowLeft size={16} /> Back to departments
@@ -252,7 +248,7 @@ const DepartmentDetails = () => {
         <div>
           <button
             type="button"
-            onClick={() => navigate("/admin/dashboard/inspection/departments")}
+            onClick={() => navigate("/admin/dashboard/departments")}
             className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
           >
             <ArrowLeft size={16} /> Back
@@ -314,84 +310,6 @@ const DepartmentDetails = () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* <section className="bg-white border rounded-lg p-5 xl:col-span-3 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="font-bold text-lg text-gray-800">Department Head Timeline</h2>
-              <p className="text-sm text-gray-500">
-                Current head always has no end date. Use Reassign to set a new current head.
-              </p>
-            </div>
-          </div>
-
-          {headMessage.text && (
-            <div
-              className={`rounded border px-3 py-2 text-sm ${
-                headMessage.type === "success"
-                  ? "border-green-200 bg-green-50 text-green-700"
-                  : "border-red-200 bg-red-50 text-red-700"
-              }`}
-            >
-              {headMessage.text}
-            </div>
-          )}
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="p-3 text-left">Teacher</th>
-                  <th className="p-3 text-left">Start Date</th>
-                  <th className="p-3 text-left">End Date</th>
-                  <th className="p-3 text-left">Status</th>
-                  <th className="p-3 text-left">Change End Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...(currentDepartmentHead ? [currentDepartmentHead] : []), ...departmentHeadHistory].length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="p-3 text-center text-gray-500">
-                      No department head timeline records found.
-                    </td>
-                  </tr>
-                ) : (
-                  [...(currentDepartmentHead ? [currentDepartmentHead] : []), ...departmentHeadHistory].map((entry) => {
-                    const isActive = !entry.end_date;
-                    return (
-                      <tr key={entry.id} className="border-t">
-                        <td className="p-3">{entry.name}</td>
-                        <td className="p-3">{String(entry.start_date || "-").slice(0, 10)}</td>
-                        <td className="p-3">{entry.end_date ? String(entry.end_date).slice(0, 10) : "-"}</td>
-                        <td className="p-3">{isActive ? "Current" : "Previous"}</td>
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="date"
-                              value={entryEndDates[entry.id] || ""}
-                              onChange={(event) =>
-                                setEntryEndDates((prev) => ({ ...prev, [entry.id]: event.target.value }))
-                              }
-                              className="p-2 border rounded"
-                              disabled={headSaving}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleEndDateUpdate(entry.id)}
-                              disabled={headSaving}
-                              className="rounded border px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed"
-                            >
-                              Update
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section> */}
-
         <section className="bg-white border rounded-lg p-5 flex flex-col">
           <div className="flex items-center gap-2 mb-4 text-blue-700">
             <BookOpen size={18} />

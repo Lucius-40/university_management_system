@@ -23,6 +23,9 @@ class DB_Connection{
         };
 
         this.pool = new Pool(connectionConfig);
+        this.pool.on('error', (error) => {
+            console.error('Unexpected PostgreSQL idle client error:', error.message);
+        });
         DB_Connection.#instance = this;
     }
     
@@ -37,6 +40,10 @@ class DB_Connection{
     query_executor = async(query, params=[])=>{
         const start = Date.now();
         const client = await this.pool.connect();
+        const onClientError = (error) => {
+            console.error('PostgreSQL client connection error:', error.message);
+        };
+        client.on('error', onClientError);
         try {
             const result = await client.query(query, params);
             if(process.env.LOG_SQL === 'true'){
@@ -48,6 +55,7 @@ class DB_Connection{
             console.log("Error executing database query: " + error.message);
             throw error; 
         } finally{
+            client.removeListener('error', onClientError);
             client.release();
         }
     }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { clearAuthSession, readAuthSession } from '../utils/authStorage';
 
 const NETWORK_LOADING_EVENT = 'app:network-loading';
 let inFlightRequests = 0;
@@ -35,7 +36,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     startRequest();
-    const token = localStorage.getItem('token');
+    const { token } = readAuthSession();
     if (token && token !== 'undefined' && token !== 'null') {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -54,9 +55,7 @@ api.interceptors.response.use(
   (error) => {
     finishRequest();
     if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/';
+      clearAuthSession();
     }
     return Promise.reject(error);
   }

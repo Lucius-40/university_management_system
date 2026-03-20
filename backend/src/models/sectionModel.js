@@ -1,5 +1,15 @@
 const DB_Connection = require("../database/db.js");
 
+const extractRollSuffix = (value) => {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    if (!digits) return null;
+
+    const suffix = digits.slice(-3);
+    const numeric = Number(suffix);
+    if (!Number.isInteger(numeric)) return null;
+    return numeric;
+};
+
 class SectionModel {
     constructor() {
         this.db = DB_Connection.getInstance();
@@ -108,8 +118,8 @@ class SectionModel {
 
                 const departmentId = Number(department_id);
                 const termId = Number(term_id);
-                const rollStart = Number(roll_start);
-                const rollEnd = Number(roll_end);
+                const rollStart = extractRollSuffix(roll_start);
+                const rollEnd = extractRollSuffix(roll_end);
                 const sectionName = String(section_name || '').trim();
 
                 if (!Number.isInteger(departmentId) || departmentId <= 0) {
@@ -131,7 +141,7 @@ class SectionModel {
                 }
 
                 if (!Number.isInteger(rollStart) || !Number.isInteger(rollEnd)) {
-                    const error = new Error('roll_start and roll_end must be integers.');
+                    const error = new Error('roll_start and roll_end must contain numeric digits.');
                     error.statusCode = 400;
                     throw error;
                 }
@@ -143,6 +153,10 @@ class SectionModel {
                 }
 
                 const client = await this.db.pool.connect();
+                const onClientError = (error) => {
+                    console.error('Section assignment PostgreSQL client error:', error.message);
+                };
+                client.on('error', onClientError);
                 try {
                     await client.query('BEGIN');
 
@@ -187,30 +201,41 @@ class SectionModel {
 
                     const studentsResult = await client.query(
                         `
+                            WITH student_rolls AS (
+                                SELECT
+                                    s.user_id AS student_id,
+                                    s.roll_number,
+                                    NULLIF(regexp_replace(s.roll_number, '[^0-9]', '', 'g'), '') AS roll_digits
+                                FROM students s
+                                JOIN terms t ON t.id = s.current_term
+                                WHERE t.department_id = $1
+                                  AND t.id = $2
+                            )
                             SELECT
-                                s.user_id AS student_id,
-                                s.roll_number,
-                                CAST(substring(s.roll_number from '([0-9]+)$') AS INTEGER) AS roll_numeric
-                            FROM students s
-                            JOIN terms t ON t.id = s.current_term
-                            WHERE t.department_id = $1
-                              AND t.id = $2
-                              AND substring(s.roll_number from '([0-9]+)$') IS NOT NULL
-                              AND CAST(substring(s.roll_number from '([0-9]+)$') AS INTEGER) BETWEEN $3 AND $4
-                            ORDER BY roll_numeric ASC, s.user_id ASC
-                            FOR UPDATE;
+                                student_id,
+                                roll_number,
+                                CAST(RIGHT(roll_digits, 3) AS INTEGER) AS roll_numeric
+                            FROM student_rolls
+                            WHERE roll_digits IS NOT NULL
+                              AND CAST(RIGHT(roll_digits, 3) AS INTEGER) BETWEEN $3 AND $4
+                                                        ORDER BY roll_numeric ASC, student_id ASC;
                         `,
                         [departmentId, termId, rollStart, rollEnd]
                     );
 
                     const invalidRollResult = await client.query(
                         `
+                            WITH student_rolls AS (
+                                SELECT
+                                    NULLIF(regexp_replace(s.roll_number, '[^0-9]', '', 'g'), '') AS roll_digits
+                                FROM students s
+                                JOIN terms t ON t.id = s.current_term
+                                WHERE t.department_id = $1
+                                  AND t.id = $2
+                            )
                             SELECT COUNT(*)::INTEGER AS invalid_roll_count
-                            FROM students s
-                            JOIN terms t ON t.id = s.current_term
-                            WHERE t.department_id = $1
-                              AND t.id = $2
-                              AND substring(s.roll_number from '([0-9]+)$') IS NULL;
+                            FROM student_rolls
+                            WHERE roll_digits IS NULL;
                         `,
                         [departmentId, termId]
                     );
@@ -274,9 +299,14 @@ class SectionModel {
                         affected_student_ids: affectedStudentIds,
                     };
                 } catch (error) {
-                    await client.query('ROLLBACK');
+                    try {
+                        await client.query('ROLLBACK');
+                    } catch (rollbackError) {
+                        console.error('Section assignment rollback failed:', rollbackError.message);
+                    }
                     throw error;
                 } finally {
+                    client.removeListener('error', onClientError);
                     client.release();
                 }
             }
@@ -313,6 +343,47 @@ class SectionModel {
             }
         );
     }
+
+        getSectionAssignmentsForInspection = (filters = {}) => {
+                return this.db.run(
+                        'get_section_assignments_for_inspection',
+                        async () => {
+                                const departmentId = filters.department_id ? Number(filters.department_id) : null;
+                                const termId = filters.term_id ? Number(filters.term_id) : null;
+                                const sectionName = filters.section_name ? String(filters.section_name).trim() : null;
+
+                                const query = `
+                                        SELECT
+                                                d.id AS department_id,
+                                                d.code AS department_code,
+                                                d.name AS department_name,
+                                                t.id AS term_id,
+                                                t.term_number,
+                                                ss.section_name,
+                                                s.user_id AS student_id,
+                                                u.name AS student_name,
+                                                s.roll_number
+                                        FROM student_sections ss
+                                        JOIN students s
+                                            ON s.user_id = ss.student_id
+                                        JOIN users u
+                                            ON u.id = s.user_id
+                                        JOIN terms t
+                                            ON t.id = s.current_term
+                                        JOIN departments d
+                                            ON d.id = t.department_id
+                                        WHERE ($1::int IS NULL OR d.id = $1)
+                                            AND ($2::int IS NULL OR t.id = $2)
+                                            AND ($3::text IS NULL OR ss.section_name = $3)
+                                        ORDER BY ss.section_name, t.term_number, s.roll_number;
+                                `;
+
+                                const params = [departmentId, termId, sectionName || null];
+                                const result = await this.db.query_executor(query, params);
+                                return result.rows;
+                        }
+                );
+        }
 }
 
 module.exports = SectionModel;

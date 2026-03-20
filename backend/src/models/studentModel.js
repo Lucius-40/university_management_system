@@ -513,6 +513,56 @@ class StudentModel {
             }
         );
     }
+
+        getAdvisorAssignmentsForInspection = (filters = {}) => {
+                return this.db.run(
+                        'get_advisor_assignments_for_inspection',
+                        async () => {
+                                const departmentId = filters.department_id ? Number(filters.department_id) : null;
+                                const termId = filters.term_id ? Number(filters.term_id) : null;
+                                const teacherId = filters.teacher_id ? Number(filters.teacher_id) : null;
+
+                                const query = `
+                                        SELECT
+                                                d.id AS department_id,
+                                                d.code AS department_code,
+                                                d.name AS department_name,
+                                                t.id AS term_id,
+                                                t.term_number,
+                                                ah.teacher_id,
+                                                tu.name AS advisor_name,
+                                                tt.appointment AS advisor_appointment,
+                                                s.user_id AS student_id,
+                                                su.name AS student_name,
+                                                s.roll_number,
+                                                ah.start_date,
+                                                ah.change_reason
+                                        FROM student_advisor_history ah
+                                        JOIN students s
+                                            ON s.user_id = ah.student_id
+                                        JOIN users su
+                                            ON su.id = s.user_id
+                                        JOIN terms t
+                                            ON t.id = s.current_term
+                                        JOIN departments d
+                                            ON d.id = t.department_id
+                                        JOIN teachers tt
+                                            ON tt.user_id = ah.teacher_id
+                                        JOIN users tu
+                                            ON tu.id = tt.user_id
+                                        WHERE ah.end_date IS NULL
+                                            AND ($1::int IS NULL OR d.id = $1)
+                                            AND ($2::int IS NULL OR t.id = $2)
+                                            AND ($3::int IS NULL OR ah.teacher_id = $3)
+                                        ORDER BY tu.name, t.term_number, s.roll_number;
+                                `;
+
+                                const params = [departmentId, termId, teacherId];
+                                const result = await this.db.query_executor(query, params);
+                                return result.rows;
+                        }
+                );
+        }
 }
 
 module.exports = StudentModel;

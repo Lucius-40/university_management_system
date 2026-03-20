@@ -1,6 +1,20 @@
 const TeacherSectionModel = require('../models/teacherSectionModel.js');
 
 class TeacherSectionController {
+    getTeachingAssignments = async (req, res) => {
+        try {
+            if (req.user?.role !== 'system') {
+                return res.status(403).json({ error: 'Only system admin can inspect teaching assignments.' });
+            }
+
+            const rows = await TeacherSectionModel.getTeachingAssignments(req.query || {});
+            res.status(200).json({ assignments: rows });
+        } catch (error) {
+            console.error('Get Teaching Assignments error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
     assignTeacherToSection = async (req, res) => {
         try {
             if (req.user?.role !== 'system') {

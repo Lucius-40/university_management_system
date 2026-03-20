@@ -422,3 +422,4 @@ FodyWeavers.xsd
 
 # Backend environment file
 backend/.env
+*.csv

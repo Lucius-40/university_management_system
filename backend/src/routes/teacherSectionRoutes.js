@@ -5,6 +5,8 @@ const AuthenticateToken = require('../middlewares/authenticateToken');
 const router = express.Router();
 const auth = new AuthenticateToken();
 
+router.get('/assignments', auth.authenticateToken, TeacherSectionController.getTeachingAssignments);
+
 router.post('/assign', auth.authenticateToken, TeacherSectionController.assignTeacherToSection);
 
 // Get all sections taught by the authenticated teacher in current terms

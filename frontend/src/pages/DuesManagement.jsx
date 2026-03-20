@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Search } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import api from "../services/api";
-
-const TABS = [
-  "dues",
-  "rules",
-  "scopes",
-  "overrides",
-  "assign-payment",
-];
-
-const TAB_LABELS = {
-  dues: "dues",
-  rules: "rules",
-  scopes: "scopes",
-  overrides: "overrides",
-  "assign-payment": "exception payment",
-};
+import DueSection from "./duesManagement/DueSection";
+import RuleSection from "./duesManagement/RuleSection";
+import ScopeSection from "./duesManagement/ScopeSection";
+import OverrideSection from "./duesManagement/OverrideSection";
+import AssignPaymentSection from "./duesManagement/AssignPaymentSection";
+import ModeToggle from "./duesManagement/ModeToggle";
 
 const INITIAL_DUE_FORM = {
   name: "",
@@ -70,8 +60,14 @@ const INITIAL_PAYMENT_FORM = {
   waive_reason: "",
 };
 
-const DuesManagement = () => {
-  const [activeTab, setActiveTab] = useState("dues");
+const DuesManagement = ({ initialTab = "dues" }) => {
+  const [activeTab, setActiveTab] = useState(initialTab);
+  
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  const [activeMode, setActiveMode] = useState("insertion");
   const [message, setMessage] = useState({ type: "", text: "" });
 
   const [dues, setDues] = useState([]);
@@ -350,656 +346,76 @@ const DuesManagement = () => {
     }
   };
 
-  const renderDuesTab = () => (
-    <div className="space-y-6">
-      <form onSubmit={handleDueSubmit} className="rounded-lg border bg-white p-4 grid gap-4 md:grid-cols-2">
-        <h3 className="md:col-span-2 text-lg font-semibold text-slate-900">
-          {editingDueId ? "Edit Due" : "Create Due"}
-        </h3>
-
-        <label className="text-sm space-y-1">
-          <span className="text-slate-700">Name</span>
-          <input
-            required
-            value={dueForm.name}
-            onChange={(event) => setDueForm((prev) => ({ ...prev, name: event.target.value }))}
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span className="text-slate-700">Amount</span>
-          <input
-            required
-            type="number"
-            min="0"
-            step="0.01"
-            value={dueForm.amount}
-            onChange={(event) => setDueForm((prev) => ({ ...prev, amount: event.target.value }))}
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span className="text-slate-700">Bank Account Number</span>
-          <input
-            value={dueForm.bank_account_number}
-            onChange={(event) =>
-              setDueForm((prev) => ({ ...prev, bank_account_number: event.target.value }))
-            }
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span className="text-slate-700">Description</span>
-          <input
-            value={dueForm.description}
-            onChange={(event) => setDueForm((prev) => ({ ...prev, description: event.target.value }))}
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={Boolean(dueForm.required_for_registration)}
-            onChange={(event) =>
-              setDueForm((prev) => ({ ...prev, required_for_registration: event.target.checked }))
-            }
-          />
-          Required for registration
-        </label>
-
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={Boolean(dueForm.is_active)}
-            onChange={(event) => setDueForm((prev) => ({ ...prev, is_active: event.target.checked }))}
-          />
-          Active
-        </label>
-
-        <div className="md:col-span-2 flex gap-2 justify-end">
-          {editingDueId && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingDueId(null);
-                setDueForm(INITIAL_DUE_FORM);
-              }}
-              className="px-4 py-2 rounded border bg-white hover:bg-slate-50"
-            >
-              Cancel Edit
-            </button>
-          )}
-          <button className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700" type="submit">
-            {editingDueId ? "Update Due" : "Create Due"}
-          </button>
-        </div>
-      </form>
-
-      <div className="rounded-lg border bg-white p-4">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h3 className="text-lg font-semibold text-slate-900">Dues List</h3>
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <input
-              value={dueSearch}
-              onChange={(event) => setDueSearch(event.target.value)}
-              placeholder="Search dues"
-              className="w-full pl-9 pr-3 py-2 border rounded-md text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-2 text-left">Name</th>
-                <th className="p-2 text-left">Amount</th>
-                <th className="p-2 text-left">Required</th>
-                <th className="p-2 text-left">Active</th>
-                <th className="p-2 text-left">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDues.map((due) => (
-                <tr className="border-t" key={due.id}>
-                  <td className="p-2">{due.name}</td>
-                  <td className="p-2">{due.amount}</td>
-                  <td className="p-2">{due.required_for_registration ? "Yes" : "No"}</td>
-                  <td className="p-2">{due.is_active ? "Yes" : "No"}</td>
-                  <td className="p-2 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleDueEdit(due)}
-                      className="px-2 py-1 rounded border hover:bg-slate-50"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDueDelete(due.id)}
-                      className="px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderRulesTab = () => (
-    <div className="space-y-6">
-      <form onSubmit={handleRuleSubmit} className="rounded-lg border bg-white p-4 grid gap-4 md:grid-cols-2">
-        <h3 className="md:col-span-2 text-lg font-semibold text-slate-900">Create Due Rule</h3>
-
-        <label className="text-sm space-y-1">
-          <span>Rule Name</span>
-          <input
-            required
-            value={ruleForm.name}
-            onChange={(event) => setRuleForm((prev) => ({ ...prev, name: event.target.value }))}
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span>Due</span>
-          <select
-            required
-            value={ruleForm.due_id}
-            onChange={(event) => setRuleForm((prev) => ({ ...prev, due_id: event.target.value }))}
-            className="w-full p-2 border rounded"
-          >
-            <option value="">Select due</option>
-            {dues.map((due) => (
-              <option key={due.id} value={due.id}>
-                {due.name} ({due.amount})
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span>Frequency</span>
-          <select
-            value={ruleForm.frequency}
-            onChange={(event) => setRuleForm((prev) => ({ ...prev, frequency: event.target.value }))}
-            className="w-full p-2 border rounded"
-          >
-            <option value="per_year">Per Year</option>
-            <option value="per_term">Per Term</option>
-            <option value="one_time">One Time</option>
-          </select>
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span>Issue Offset Days</span>
-          <input
-            type="number"
-            min="0"
-            value={ruleForm.issue_offset_days}
-            onChange={(event) =>
-              setRuleForm((prev) => ({ ...prev, issue_offset_days: event.target.value }))
-            }
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span>Starts On</span>
-          <input
-            type="date"
-            value={ruleForm.starts_on}
-            onChange={(event) => setRuleForm((prev) => ({ ...prev, starts_on: event.target.value }))}
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm space-y-1">
-          <span>Ends On</span>
-          <input
-            type="date"
-            value={ruleForm.ends_on}
-            onChange={(event) => setRuleForm((prev) => ({ ...prev, ends_on: event.target.value }))}
-            className="w-full p-2 border rounded"
-          />
-        </label>
-
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={Boolean(ruleForm.required_for_registration)}
-            onChange={(event) =>
-              setRuleForm((prev) => ({ ...prev, required_for_registration: event.target.checked }))
-            }
-          />
-          Required for registration
-        </label>
-
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={Boolean(ruleForm.is_active)}
-            onChange={(event) => setRuleForm((prev) => ({ ...prev, is_active: event.target.checked }))}
-          />
-          Rule active
-        </label>
-
-        <div className="md:col-span-2 flex justify-end">
-          <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
-            Create Rule
-          </button>
-        </div>
-      </form>
-
-      <div className="rounded-lg border bg-white p-4">
-        <h3 className="text-lg font-semibold text-slate-900 mb-3">Rules</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-2 text-left">Rule</th>
-                <th className="p-2 text-left">Due</th>
-                <th className="p-2 text-left">Frequency</th>
-                <th className="p-2 text-left">Required</th>
-                <th className="p-2 text-left">Active</th>
-                <th className="p-2 text-left">Issue</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((rule) => (
-                <tr key={rule.id} className="border-t">
-                  <td className="p-2">{rule.name}</td>
-                  <td className="p-2">{rule.due_name}</td>
-                  <td className="p-2">{rule.frequency}</td>
-                  <td className="p-2">{rule.required_for_registration ? "Yes" : "No"}</td>
-                  <td className="p-2">{rule.is_active ? "Yes" : "No"}</td>
-                  <td className="p-2">
-                    <button
-                      type="button"
-                      onClick={() => handleIssueRule(rule.id)}
-                      disabled={issuingRuleId === rule.id}
-                      className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-                    >
-                      {issuingRuleId === rule.id ? "Issuing..." : "Issue"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderScopeTab = () => (
-    <form onSubmit={handleScopeSubmit} className="rounded-lg border bg-white p-4 grid gap-4 md:grid-cols-2">
-      <h3 className="md:col-span-2 text-lg font-semibold text-slate-900">Add Rule Scope</h3>
-
-      <label className="text-sm space-y-1">
-        <span>Rule</span>
-        <select
-          required
-          value={scopeForm.rule_id}
-          onChange={(event) => setScopeForm((prev) => ({ ...prev, rule_id: event.target.value }))}
-          className="w-full p-2 border rounded"
-        >
-          <option value="">Select rule</option>
-          {rules.map((rule) => (
-            <option key={rule.id} value={rule.id}>
-              {rule.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Department (optional)</span>
-        <select
-          value={scopeForm.department_id}
-          onChange={(event) =>
-            setScopeForm((prev) => ({ ...prev, department_id: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        >
-          <option value="">All departments</option>
-          {departments.map((department) => (
-            <option key={department.id} value={department.id}>
-              {department.code} - {department.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Term Number (optional)</span>
-        <input
-          type="number"
-          min="1"
-          value={scopeForm.term_number}
-          onChange={(event) => setScopeForm((prev) => ({ ...prev, term_number: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Section Name (optional)</span>
-        <input
-          value={scopeForm.section_name}
-          onChange={(event) => setScopeForm((prev) => ({ ...prev, section_name: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Batch Year (optional)</span>
-        <input
-          type="number"
-          min="1900"
-          max="3000"
-          value={scopeForm.batch_year}
-          onChange={(event) => setScopeForm((prev) => ({ ...prev, batch_year: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <div className="md:col-span-2 flex justify-end">
-        <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
-          Add Scope
-        </button>
-      </div>
-    </form>
-  );
-
-  const renderOverridesTab = () => (
-    <form onSubmit={handleOverrideSubmit} className="rounded-lg border bg-white p-4 grid gap-4 md:grid-cols-2">
-      <h3 className="md:col-span-2 text-lg font-semibold text-slate-900">Add Rule Amount Override</h3>
-
-      <label className="text-sm space-y-1">
-        <span>Rule</span>
-        <select
-          required
-          value={overrideForm.rule_id}
-          onChange={(event) => setOverrideForm((prev) => ({ ...prev, rule_id: event.target.value }))}
-          className="w-full p-2 border rounded"
-        >
-          <option value="">Select rule</option>
-          {rules.map((rule) => (
-            <option key={rule.id} value={rule.id}>
-              {rule.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Override Amount</span>
-        <input
-          required
-          type="number"
-          min="0"
-          step="0.01"
-          value={overrideForm.override_amount}
-          onChange={(event) =>
-            setOverrideForm((prev) => ({ ...prev, override_amount: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Department (optional)</span>
-        <select
-          value={overrideForm.department_id}
-          onChange={(event) =>
-            setOverrideForm((prev) => ({ ...prev, department_id: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        >
-          <option value="">All departments</option>
-          {departments.map((department) => (
-            <option key={department.id} value={department.id}>
-              {department.code} - {department.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Term Number (optional)</span>
-        <input
-          type="number"
-          min="1"
-          value={overrideForm.term_number}
-          onChange={(event) =>
-            setOverrideForm((prev) => ({ ...prev, term_number: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Section Name (optional)</span>
-        <input
-          value={overrideForm.section_name}
-          onChange={(event) =>
-            setOverrideForm((prev) => ({ ...prev, section_name: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Batch Year (optional)</span>
-        <input
-          type="number"
-          min="1900"
-          max="3000"
-          value={overrideForm.batch_year}
-          onChange={(event) => setOverrideForm((prev) => ({ ...prev, batch_year: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <div className="md:col-span-2 flex justify-end">
-        <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
-          Add Override
-        </button>
-      </div>
-    </form>
-  );
-
-  const renderAssignPaymentTab = () => (
-    <form onSubmit={handlePaymentSubmit} className="rounded-lg border bg-white p-4 grid gap-4 md:grid-cols-2">
-      <div className="md:col-span-2">
-        <h3 className="text-lg font-semibold text-slate-900">Exception: Manual Student Assignment</h3>
-        <p className="text-sm text-slate-600 mt-1">
-          Use this only for exceptional cases (late joins, corrections, waivers). For investigation and preview, use Inspection to Dues.
-        </p>
-      </div>
-
-      <label className="text-sm space-y-1">
-        <span>Student</span>
-        <select
-          required
-          value={paymentForm.student_id}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, student_id: event.target.value }))}
-          className="w-full p-2 border rounded"
-        >
-          <option value="">Select student</option>
-          {students.map((student) => (
-            <option key={student.user_id} value={student.user_id}>
-              {student.roll_number} (ID {student.user_id})
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Due</span>
-        <select
-          required
-          value={paymentForm.due_id}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, due_id: event.target.value }))}
-          className="w-full p-2 border rounded"
-        >
-          <option value="">Select due</option>
-          {dues.map((due) => (
-            <option key={due.id} value={due.id}>
-              {due.name} ({due.amount})
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Term (optional)</span>
-        <select
-          value={paymentForm.term_id}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, term_id: event.target.value }))}
-          className="w-full p-2 border rounded"
-        >
-          <option value="">Global / all terms</option>
-          {terms.map((term) => {
-            const department = departmentById.get(Number(term.department_id));
-            return (
-              <option key={term.id} value={term.id}>
-                {department?.code || term.department_id} - Term {term.term_number}
-              </option>
-            );
-          })}
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Status</span>
-        <select
-          value={paymentForm.status}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, status: event.target.value }))}
-          className="w-full p-2 border rounded"
-        >
-          <option value="Overdue">Overdue</option>
-          <option value="Partial">Partial</option>
-          <option value="Paid">Paid</option>
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Amount Paid</span>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={paymentForm.amount_paid}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, amount_paid: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Amount Due Override (optional)</span>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={paymentForm.amount_due_override}
-          onChange={(event) =>
-            setPaymentForm((prev) => ({ ...prev, amount_due_override: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Deadline (legacy)</span>
-        <input
-          type="date"
-          value={paymentForm.deadline}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, deadline: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Due Date</span>
-        <input
-          type="date"
-          value={paymentForm.due_date}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, due_date: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Payment Method (optional)</span>
-        <select
-          value={paymentForm.payment_method}
-          onChange={(event) =>
-            setPaymentForm((prev) => ({ ...prev, payment_method: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        >
-          <option value="">Not specified</option>
-          <option value="Mobile Banking">Mobile Banking</option>
-          <option value="Bank Transfer">Bank Transfer</option>
-        </select>
-      </label>
-
-      <label className="text-sm space-y-1">
-        <span>Mobile Banking Number</span>
-        <input
-          value={paymentForm.mobile_banking_number}
-          onChange={(event) =>
-            setPaymentForm((prev) => ({ ...prev, mobile_banking_number: event.target.value }))
-          }
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm space-y-1 md:col-span-2">
-        <span>Waive Reason (optional)</span>
-        <input
-          value={paymentForm.waive_reason}
-          onChange={(event) => setPaymentForm((prev) => ({ ...prev, waive_reason: event.target.value }))}
-          className="w-full p-2 border rounded"
-        />
-      </label>
-
-      <label className="text-sm flex items-center gap-2 md:col-span-2">
-        <input
-          type="checkbox"
-          checked={Boolean(paymentForm.required_for_registration)}
-          onChange={(event) =>
-            setPaymentForm((prev) => ({ ...prev, required_for_registration: event.target.checked }))
-          }
-        />
-        Required for registration
-      </label>
-
-      <div className="md:col-span-2 flex justify-end">
-        <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
-          Save Payment Assignment
-        </button>
-      </div>
-    </form>
-  );
-
   const renderBody = () => {
-    if (activeTab === "dues") return renderDuesTab();
-    if (activeTab === "rules") return renderRulesTab();
-    if (activeTab === "scopes") return renderScopeTab();
-    if (activeTab === "overrides") return renderOverridesTab();
-    if (activeTab === "assign-payment") return renderAssignPaymentTab();
+    if (activeTab === "dues") {
+      return (
+        <DueSection
+          activeMode={activeMode}
+          dueForm={dueForm}
+          setDueForm={setDueForm}
+          editingDueId={editingDueId}
+          setEditingDueId={setEditingDueId}
+          dueSearch={dueSearch}
+          setDueSearch={setDueSearch}
+          filteredDues={filteredDues}
+          handleDueSubmit={handleDueSubmit}
+          handleDueEdit={handleDueEdit}
+          handleDueDelete={handleDueDelete}
+        />
+      );
+    }
+    if (activeTab === "rules") {
+      return (
+        <RuleSection
+          activeMode={activeMode}
+          ruleForm={ruleForm}
+          setRuleForm={setRuleForm}
+          rules={rules}
+          dues={dues}
+          issuingRuleId={issuingRuleId}
+          handleRuleSubmit={handleRuleSubmit}
+          handleIssueRule={handleIssueRule}
+        />
+      );
+    }
+    if (activeTab === "scopes") {
+      return (
+        <ScopeSection
+          activeMode={activeMode}
+          scopeForm={scopeForm}
+          setScopeForm={setScopeForm}
+          rules={rules}
+          departments={departments}
+          handleScopeSubmit={handleScopeSubmit}
+        />
+      );
+    }
+    if (activeTab === "overrides") {
+      return (
+        <OverrideSection
+          activeMode={activeMode}
+          overrideForm={overrideForm}
+          setOverrideForm={setOverrideForm}
+          rules={rules}
+          departments={departments}
+          handleOverrideSubmit={handleOverrideSubmit}
+        />
+      );
+    }
+    if (activeTab === "assign-payment") {
+      return (
+        <AssignPaymentSection
+          activeMode={activeMode}
+          paymentForm={paymentForm}
+          setPaymentForm={setPaymentForm}
+          students={students}
+          dues={dues}
+          terms={terms}
+          departmentById={departmentById}
+          handlePaymentSubmit={handlePaymentSubmit}
+        />
+      );
+    }
     return null;
   };
 
@@ -1035,34 +451,9 @@ const DuesManagement = () => {
         )}
       </div>
 
-      <div className="rounded-lg border bg-white p-4">
-        <div className="flex flex-wrap gap-2">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`px-3 py-2 rounded text-sm font-medium border ${
-                activeTab === tab
-                  ? "bg-slate-800 text-white border-slate-800"
-                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              {TAB_LABELS[tab] || tab.replaceAll("-", " ")}
-            </button>
-          ))}
-        </div>
-      </div>
+      <ModeToggle supportsModeToggle={true} activeMode={activeMode} setActiveMode={setActiveMode} />
 
       {renderBody()}
-
-      {/* <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        <div className="font-medium mb-1">Current API coverage note</div>
-        <p>
-          Rule creation, scope creation, amount override creation, due CRUD, and payment assignment are available.
-          Update/delete for rules, scopes, overrides, and payment records are not exposed by backend endpoints yet.
-        </p>
-      </div> */}
     </div>
   );
 };
