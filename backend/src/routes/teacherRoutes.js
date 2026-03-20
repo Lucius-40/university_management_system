@@ -7,6 +7,7 @@ const teacherController = new TeacherController();
 const auth = new AuthenticateToken();
 
 router.post('/', auth.authenticateToken, teacherController.createTeacher);
+router.post('/batch', auth.authenticateToken, teacherController.createTeachersBatch);
 router.get('/', auth.authenticateToken, teacherController.getAllTeachers);
 router.get('/:user_id', auth.authenticateToken, teacherController.getTeacherByUserId);
 router.put('/:user_id', auth.authenticateToken, teacherController.updateTeacher);

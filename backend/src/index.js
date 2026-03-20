@@ -21,11 +21,15 @@ const markingRoutes = require('./routes/markingRoutes.js');
 const feedbackRoutes = require('./routes/feedbackRoutes.js');
 const superAdminRoutes = require('./routes/superAdminRoutes.js');
 const initialCredentialsRoutes = require('./routes/initialCredentialsRoutes.js');
+const systemStateRoutes = require('./routes/systemStateRoutes.js');
 
 
 const app = express();
-app.use(express.json());
-app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cors({
+    origin: ['http://localhost:5173']
+}));
 
 
 const PORT = process.env.PORT || 3000;
@@ -47,6 +51,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/markings', markingRoutes);
 app.use('/api/feedbacks', feedbackRoutes);
 app.use('/api/credentials', initialCredentialsRoutes);
+app.use('/api/system-state', systemStateRoutes);
 
 // create table for once at the start, never run this again. request on this url: '/api/table/create-tables', lol
 

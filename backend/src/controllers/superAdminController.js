@@ -26,7 +26,7 @@ class SuperAdminController {
                 name,
                 email,
                 password_hash,
-                role: 'Admin',
+                role: 'system',
                 mobile_number: '0000000000', 
                 mobile_banking_number: '0000000000', 
                 present_address: 'University Admin Office',

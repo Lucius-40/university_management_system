@@ -5,6 +5,14 @@ class CourseModel {
         this.db = DB_Connection.getInstance();
     }
 
+    normalizeBoolean = (value, fallback = false) => {
+        if (typeof value === 'boolean') return value;
+        if (value === 'true' || value === '1' || value === 1) return true;
+        if (value === 'false' || value === '0' || value === 0) return false;
+        return fallback;
+    }
+
+
     normalizeCourseType = (type) => {
         const value = String(type || '').trim().toLowerCase();
         if (value === 'lab') return 'Lab';
@@ -181,15 +189,49 @@ class CourseModel {
         return this.db.run(
             'create_course_offering',
             async () => {
-                const { term_id, course_id, max_capacity } = payload;
-                const query = `
-                    INSERT INTO course_offerings (term_id, course_id, max_capacity)
-                    VALUES ($1, $2, $3)
-                    RETURNING *;
-                `;
-                const params = [term_id, course_id, max_capacity];
-                const result = await this.db.query_executor(query, params);
-                return result.rows[0];
+                const {
+                    term_id,
+                    course_id,
+                    max_capacity,
+                    is_optional = false,
+                    is_active = true,
+                } = payload;
+
+                const normalizedIsOptional = this.normalizeBoolean(is_optional, false);
+                const normalizedIsActive = this.normalizeBoolean(is_active, true);
+
+                const client = await this.db.pool.connect();
+                try {
+                    await client.query('BEGIN');
+
+                    const query = `
+                        INSERT INTO course_offerings (
+                            term_id,
+                            course_id,
+                            max_capacity,
+                            is_optional,
+                            is_active
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING *;
+                    `;
+                    const params = [
+                        term_id,
+                        course_id,
+                        max_capacity,
+                        normalizedIsOptional,
+                        normalizedIsActive,
+                    ];
+                    const result = await client.query(query, params);
+
+                    await client.query('COMMIT');
+                    return result.rows[0];
+                } catch (error) {
+                    await client.query('ROLLBACK');
+                    throw error;
+                } finally {
+                    client.release();
+                }
             }
         );
     }
@@ -206,25 +248,100 @@ class CourseModel {
         );
     }
 
+    updateCourseOffering = (id, payload) => {
+        return this.db.run(
+            'update_course_offering',
+            async () => {
+                const offeringId = Number(id);
+                const existing = await this.getCourseOfferingById(offeringId);
+                if (!existing) return null;
+
+                const nextTermId = Number(payload.term_id ?? existing.term_id);
+                const nextCourseId = Number(payload.course_id ?? existing.course_id);
+                const nextMaxCapacity = payload.max_capacity ?? existing.max_capacity;
+                const nextIsOptional = this.normalizeBoolean(payload.is_optional, existing.is_optional);
+                const nextIsActive = this.normalizeBoolean(payload.is_active, existing.is_active);
+
+                const client = await this.db.pool.connect();
+                try {
+                    await client.query('BEGIN');
+
+                    const query = `
+                        UPDATE course_offerings
+                        SET
+                            term_id = $2,
+                            course_id = $3,
+                            max_capacity = $4,
+                            is_optional = $5,
+                            is_active = $6
+                        WHERE id = $1
+                        RETURNING *;
+                    `;
+
+                    const params = [
+                        offeringId,
+                        nextTermId,
+                        nextCourseId,
+                        nextMaxCapacity,
+                        nextIsOptional,
+                        nextIsActive,
+                    ];
+                    const result = await client.query(query, params);
+
+                    await client.query('COMMIT');
+                    return result.rows[0] || null;
+                } catch (error) {
+                    await client.query('ROLLBACK');
+                    throw error;
+                } finally {
+                    client.release();
+                }
+            }
+        );
+    }
+
+    deleteCourseOffering = (id) => {
+        return this.db.run(
+            'delete_course_offering',
+            async () => {
+                const query = `DELETE FROM course_offerings WHERE id = $1 RETURNING *;`;
+                const result = await this.db.query_executor(query, [id]);
+                return result.rows[0] || null;
+            }
+        );
+    }
+
     // Registration helper methods
-    getCourseOfferingsByTerm = (term_id, department_id = null) => {
+    getCourseOfferingsByTerm = (term_id, department_id = null, includeInactive = false) => {
         return this.db.run(
             'get_course_offerings_by_term',
             async () => {
                 let query = `
-                    SELECT co.*, c.course_code, c.name, c.credit_hours, c.type, c.department_id
+                    SELECT
+                        co.*,
+                        t.department_id AS offering_department_id,
+                        c.course_code,
+                        c.name,
+                        c.credit_hours,
+                        c.type,
+                        c.department_id
                     FROM course_offerings co
+                    JOIN terms t ON co.term_id = t.id
                     JOIN courses c ON co.course_id = c.id
                     WHERE co.term_id = $1
                 `;
                 const params = [term_id];
+
+                if (!includeInactive) {
+                    query += ` AND COALESCE(co.is_active, TRUE) = TRUE`;
+                }
                 
                 if (department_id) {
-                    query += ` AND c.department_id = $2`;
+                    query += ` AND t.department_id = $2`;
                     params.push(department_id);
                 }
                 
-                query += ` ORDER BY c.course_code;`;
+                query += ` ORDER BY co.is_optional, c.course_code;`;
                 
                 const result = await this.db.query_executor(query, params);
                 return result.rows;

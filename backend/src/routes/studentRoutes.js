@@ -7,9 +7,15 @@ const studentController = new StudentController();
 const auth = new AuthenticateToken();
 
 router.post('/', auth.authenticateToken, studentController.createStudent);
+router.post('/batch', auth.authenticateToken, studentController.createStudentsBatch);
 router.get('/', auth.authenticateToken, studentController.getAllStudents);
-router.get('/:user_id', auth.authenticateToken, studentController.getStudentByUserId);
+router.post('/advisors/assign-range', auth.authenticateToken, studentController.assignAdvisorsByRollRange);
+router.get('/advisors/inspect', auth.authenticateToken, studentController.getAdvisorAssignmentsForInspection);
+router.get('/:user_id/advisors/current', auth.authenticateToken, studentController.getCurrentAdvisorByStudentId);
+router.get('/:user_id/advisors/history', auth.authenticateToken, studentController.getAdvisorHistoryByStudentId);
+router.get('/:user_id/advisors', auth.authenticateToken, studentController.getAdvisorTimelineByStudentId);
 router.get('/roll/:roll_number', auth.authenticateToken, studentController.getStudentByRollNumber);
+router.get('/:user_id', auth.authenticateToken, studentController.getStudentByUserId);
 router.put('/:user_id', auth.authenticateToken, studentController.updateStudent);
 router.delete('/:user_id', auth.authenticateToken, studentController.deleteStudent);
 
