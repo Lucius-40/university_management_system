@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -20,12 +22,11 @@ const Login = () => {
       });
 
       const { accessToken, user } = response.data;
-      
-      localStorage.setItem('token', accessToken);
-      localStorage.setItem('user', JSON.stringify(user));
+
+      login({ token: accessToken, user });
 
       if (user.role === 'system') {
-        navigate('/admin/dashboard');
+        navigate('/admin/dashboard/dashboard');
       } else {
         setError('Unauthorized: Academic portals are separate.');
       }

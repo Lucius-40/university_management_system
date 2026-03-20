@@ -1,6 +1,44 @@
 const TeacherSectionModel = require('../models/teacherSectionModel.js');
 
 class TeacherSectionController {
+    getTeachingAssignments = async (req, res) => {
+        try {
+            if (req.user?.role !== 'system') {
+                return res.status(403).json({ error: 'Only system admin can inspect teaching assignments.' });
+            }
+
+            const rows = await TeacherSectionModel.getTeachingAssignments(req.query || {});
+            res.status(200).json({ assignments: rows });
+        } catch (error) {
+            console.error('Get Teaching Assignments error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    assignTeacherToSection = async (req, res) => {
+        try {
+            if (req.user?.role !== 'system') {
+                return res.status(403).json({ error: 'Only system admin can assign teachers to sections.' });
+            }
+
+            const result = await TeacherSectionModel.assignTeacherToSection(req.body || {});
+            const statusCode = result.action === 'inserted' ? 201 : 200;
+            res.status(statusCode).json(result);
+        } catch (error) {
+            console.error('Assign Teacher To Section error:', error);
+            const statusCode = Number(error.statusCode) || 500;
+
+            if (error.details) {
+                return res.status(statusCode).json({
+                    error: error.message,
+                    details: error.details,
+                });
+            }
+
+            res.status(statusCode).json({ error: error.message });
+        }
+    }
+
     /**
      * Get all sections taught by the authenticated teacher in current terms
      */

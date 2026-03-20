@@ -7,6 +7,10 @@ class TermController {
 
     createTerm = async (req, res) => {
         try {
+            if (req.body?.max_credit != null && Number(req.body.max_credit) <= 0) {
+                return res.status(400).json({ message: "max_credit must be greater than 0." });
+            }
+
             const term = await this.termModel.createTerm(req.body);
             res.status(201).json(term);
         } catch (error) {
@@ -40,6 +44,16 @@ class TermController {
 
     updateTerm = async (req, res) => {
         try {
+            if (Object.prototype.hasOwnProperty.call(req.body, 'start_date') || Object.prototype.hasOwnProperty.call(req.body, 'end_date')) {
+                return res.status(400).json({
+                    message: 'Term start/end dates are managed from the University State dashboard.'
+                });
+            }
+
+            if (req.body?.max_credit != null && Number(req.body.max_credit) <= 0) {
+                return res.status(400).json({ message: "max_credit must be greater than 0." });
+            }
+
             const term = await this.termModel.updateTerm(req.params.id, req.body);
             if (!term) {
                 return res.status(404).json({ message: "Term not found" });
