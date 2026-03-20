@@ -98,7 +98,7 @@ const StudentDashboard = () => {
                   Update Profile
                 </NavLink>
                 <NavLink
-                  to="/student/dashboard/profile/update-personal-info"
+                  to="/student/dashboard/profile/personal"
                   className={({ isActive }) =>
                     `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
                       isActive
@@ -108,7 +108,7 @@ const StudentDashboard = () => {
                   }
                 >
                   <UserRound size={15} />
-                  Update Personal Information
+                  Reset Password
                 </NavLink>
                 <NavLink
                   to="/student/dashboard/profile/my-advisor"
@@ -240,9 +240,10 @@ const StudentDashboard = () => {
             element={<Navigate to="/student/dashboard/profile/update-profile" replace />}
           />
           <Route path="/profile/update-profile" element={<UpdateProfileSection />} />
+          <Route path="/profile/personal" element={<UpdatePersonalInfoSection />} />
           <Route
             path="/profile/update-personal-info"
-            element={<UpdatePersonalInfoSection />}
+            element={<Navigate to="/student/dashboard/profile/personal" replace />}
           />
           <Route path="/profile/my-advisor" element={<MyAdvisorSection />} />
           <Route path="/academic/registration" element={<RegistrationSection />} />

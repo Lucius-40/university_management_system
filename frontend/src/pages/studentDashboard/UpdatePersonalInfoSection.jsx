@@ -3,8 +3,7 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { readAuthSession } from '../../utils/authStorage';
 
-const PERSONAL_TAB = 'personal';
-const PASSWORD_TAB = 'password';
+const PASSWORD_TAB = 'password-reset';
 
 const UpdatePersonalInfoSection = () => {
   const { user } = useAuth();
@@ -12,7 +11,7 @@ const UpdatePersonalInfoSection = () => {
   const sessionUser = user || fallbackSession.user;
   const userId = sessionUser?.id;
 
-  const [activeTab, setActiveTab] = useState(PERSONAL_TAB);
+  const [activeTab, setActiveTab] = useState(PASSWORD_TAB);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -63,25 +62,11 @@ const UpdatePersonalInfoSection = () => {
     <section className="max-w-5xl">
       <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Personal</h1>
-          <p className="mt-2 text-slate-600">Manage your personal settings and password.</p>
+          <h1 className="text-2xl font-semibold text-slate-900">Reset Password</h1>
+          <p className="mt-2 text-slate-600">Update your account password.</p>
         </div>
 
         <div className="border-b border-slate-200 flex gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab(PERSONAL_TAB);
-              setMessage({ type: '', text: '' });
-            }}
-            className={`px-4 py-2 text-sm rounded-t ${
-              activeTab === PERSONAL_TAB
-                ? 'bg-slate-100 text-slate-900 border border-slate-200 border-b-white'
-                : 'text-slate-600 hover:text-slate-800'
-            }`}
-          >
-            Personal Information
-          </button>
           <button
             type="button"
             onClick={() => {
@@ -94,15 +79,11 @@ const UpdatePersonalInfoSection = () => {
                 : 'text-slate-600 hover:text-slate-800'
             }`}
           >
-            Reset Password
+            Password Reset
           </button>
         </div>
 
-        {activeTab === PERSONAL_TAB ? (
-          <div className="rounded border border-slate-200 bg-slate-50 p-4">
-            <p className="text-slate-700">Personal information editing is available from the Update Profile tab.</p>
-          </div>
-        ) : (
+        {activeTab === PASSWORD_TAB ? (
           <div className="space-y-4">
             {message.text ? (
               <div
@@ -164,7 +145,7 @@ const UpdatePersonalInfoSection = () => {
               </div>
             </form>
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );
