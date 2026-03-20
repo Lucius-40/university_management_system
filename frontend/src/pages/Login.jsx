@@ -22,11 +22,14 @@ const Login = () => {
       });
 
       const { accessToken, user } = response.data;
+      const normalizedRole = String(user?.role || '').toLowerCase();
 
       login({ token: accessToken, user });
 
-      if (user.role === 'system') {
+      if (normalizedRole === 'system') {
         navigate('/admin/dashboard/dashboard');
+      } else if (normalizedRole === 'student') {
+        navigate('/student/dashboard/profile/update-profile');
       } else {
         setError('Unauthorized: Academic portals are separate.');
       }

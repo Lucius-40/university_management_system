@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
+import StudentDashboard from './pages/StudentDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 
 const NETWORK_LOADING_EVENT = 'app:network-loading';
@@ -32,6 +33,15 @@ function App() {
                 <AdminDashboard />
               </ProtectedRoute>
             } 
+          />
+
+          <Route
+            path="/student/dashboard/*"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <StudentDashboard />
+              </ProtectedRoute>
+            }
           />
 
           <Route
