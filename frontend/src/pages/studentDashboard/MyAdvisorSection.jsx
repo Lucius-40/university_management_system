@@ -106,12 +106,12 @@ const MyAdvisorSection = () => {
                   {readAdvisorValue(advisor, ['appointment'])}
                 </p>
               </div>
-              <div className="rounded border border-blue-100 bg-white p-3">
+              {/* <div className="rounded border border-blue-100 bg-white p-3">
                 <p className="text-slate-500">Advisor ID</p>
                 <p className="font-medium text-slate-900 mt-1">
                   {readAdvisorValue(advisor, ['teacher_id', 'advisor_id'])}
                 </p>
-              </div>
+              </div> */}
             </div>
           </div>
         ) : null}

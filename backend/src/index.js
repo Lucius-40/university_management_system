@@ -22,6 +22,7 @@ const feedbackRoutes = require('./routes/feedbackRoutes.js');
 const superAdminRoutes = require('./routes/superAdminRoutes.js');
 const initialCredentialsRoutes = require('./routes/initialCredentialsRoutes.js');
 const systemStateRoutes = require('./routes/systemStateRoutes.js');
+const routineRoutes = require('./routes/routineRoutes.js');
 
 
 const app = express();
@@ -52,6 +53,7 @@ app.use('/api/markings', markingRoutes);
 app.use('/api/feedbacks', feedbackRoutes);
 app.use('/api/credentials', initialCredentialsRoutes);
 app.use('/api/system-state', systemStateRoutes);
+app.use('/api/routines', routineRoutes);
 
 // create table for once at the start, never run this again. request on this url: '/api/table/create-tables', lol
 

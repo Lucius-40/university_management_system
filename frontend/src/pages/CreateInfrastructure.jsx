@@ -12,6 +12,7 @@ import SectionSection from "./createInfrastructure/SectionSection";
 import OfferingSection from "./createInfrastructure/OfferingSection";
 import TeachesSection from "./createInfrastructure/TeachesSection";
 import BatchCourseSection from "./createInfrastructure/BatchCourseSection";
+import RoutineSection from "./createInfrastructure/RoutineSection";
 
 const COURSE_BATCH_CHUNK_SIZE = 60;
 
@@ -310,7 +311,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   }, [activeTab, activeMode, loadTeachingAssignments]);
 
   const clearInfrastructureCaches = () => {
-    ["department", "term", "section", "course", "offering", "teaches"].forEach((tab) => {
+    ["department", "term", "section", "course", "offering", "teaches", "routine"].forEach((tab) => {
       localStorage.removeItem(cacheKeyForTab(tab));
     });
     clearDepartmentDetailsCache();
@@ -1003,9 +1004,9 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
       .sort((left, right) => String(left.display_name).localeCompare(String(right.display_name)));
   }, [teachers, departments]);
 
-  const supportsModeToggle = activeTab !== "department";
+  const supportsModeToggle = activeTab !== "department" && activeTab !== "routine";
   const supportsBatchMode = activeTab === "course";
-  const showInsertion = activeTab === "department" || activeMode === "insertion";
+  const showInsertion = activeTab === "department" || activeTab === "routine" || activeMode === "insertion";
   const showInspection = activeTab === "department" || activeMode === "inspection";
 
   return (
@@ -1179,6 +1180,13 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
           loadTeachingAssignments={loadTeachingAssignments}
           filteredTeachingAssignments={filteredTeachingAssignments}
           openInsights={openInsights}
+        />
+
+        <RoutineSection
+          activeTab={activeTab}
+          clearInfrastructureCaches={clearInfrastructureCaches}
+          fetchData={fetchData}
+          setMessage={setMessage}
         />
       </div>
 
