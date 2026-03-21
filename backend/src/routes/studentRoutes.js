@@ -23,6 +23,8 @@ router.delete('/:user_id', auth.authenticateToken, studentController.deleteStude
 router.post('/:user_id/register', auth.authenticateToken, studentController.registerForCourses);
 router.get('/:user_id/available-courses', auth.authenticateToken, studentController.getAvailableCourses);
 router.get('/:user_id/registration-eligibility', auth.authenticateToken, studentController.getRegistrationEligibility);
+router.get('/:user_id/results', auth.authenticateToken, studentController.getAllResults);
+router.get('/:user_id/results/:term_number', auth.authenticateToken, studentController.getResultsByTermNumber);
 
 
 module.exports = router;

@@ -200,6 +200,66 @@ ORDER BY c.course_code;
 $$;
 ~~~
 
+### refresh_enrollment_grade_from_markings(p_enrollment_id INT)
+Synchronizes one row in student_enrollments.grade with the grade derived by compile_student_term_result for that enrollment's student and term.
+
+~~~sql
+CREATE OR REPLACE FUNCTION refresh_enrollment_grade_from_markings(p_enrollment_id INT)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_student_id INT;
+  v_term_id INT;
+  v_grade VARCHAR;
+BEGIN
+  SELECT se.student_id, co.term_id
+  INTO v_student_id, v_term_id
+  FROM student_enrollments se
+  JOIN course_offerings co ON co.id = se.course_offering_id
+  WHERE se.id = p_enrollment_id;
+
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  SELECT csr.grade
+  INTO v_grade
+  FROM compile_student_term_result(v_student_id, v_term_id) csr
+  WHERE csr.enrollment_id = p_enrollment_id
+  LIMIT 1;
+
+  UPDATE student_enrollments
+  SET grade = v_grade
+  WHERE id = p_enrollment_id;
+END;
+$$;
+~~~
+
+### trg_sync_enrollment_grade_from_markings()
+AFTER trigger function on marking_components that refreshes enrollment grade on INSERT/UPDATE/DELETE, including enrollment_id changes.
+
+~~~sql
+CREATE OR REPLACE FUNCTION trg_sync_enrollment_grade_from_markings()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.enrollment_id IS DISTINCT FROM NEW.enrollment_id THEN
+    PERFORM refresh_enrollment_grade_from_markings(OLD.enrollment_id);
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    PERFORM refresh_enrollment_grade_from_markings(OLD.enrollment_id);
+    RETURN OLD;
+  END IF;
+
+  PERFORM refresh_enrollment_grade_from_markings(NEW.enrollment_id);
+  RETURN NEW;
+END;
+$$;
+~~~
+
 ### get_teacher_sections(p_teacher_id INT)
 Returns sections taught by a teacher in current terms, including department and term context for academic workflows.
 
@@ -334,6 +394,18 @@ FOR EACH ROW
 EXECUTE FUNCTION trg_marking_components_limits();
 ~~~
 
+### sync_enrollment_grade_from_markings_trg on marking_components
+After-insert/update/delete trigger that keeps student_enrollments.grade in sync with published marking components.
+
+~~~sql
+DROP TRIGGER IF EXISTS sync_enrollment_grade_from_markings_trg ON marking_components;
+
+CREATE TRIGGER sync_enrollment_grade_from_markings_trg
+AFTER INSERT OR UPDATE OR DELETE ON marking_components
+FOR EACH ROW
+EXECUTE FUNCTION trg_sync_enrollment_grade_from_markings();
+~~~
+
 ## Missing Definitions Check
 
-All functions, procedures, and triggers currently listed in this file are present in schema.txt.
+Functions and triggers listed here are implemented in backend table setup SQL and/or migration files.

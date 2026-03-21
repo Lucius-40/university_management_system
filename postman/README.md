@@ -6,6 +6,7 @@ This guide explains how to test the University Management System API endpoints u
 
 - **[Teacher Sections Testing](#teacher-sections-testing)** - Test teacher interface for viewing sections and students
 - **[Student Registration Flow](#student-registration-flow-testing)** - Test student course registration
+- **[Grades Setup Guide](GRADES_SETUP.md)** - Seed synthetic historical results for View Grades
 
 ---
 
