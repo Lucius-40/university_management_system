@@ -36,6 +36,7 @@ const AdminDashboard = () => {
       location.pathname.includes("/admin/dashboard/courses") ||
       location.pathname.includes("/admin/dashboard/offerings") ||
       location.pathname.includes("/admin/dashboard/teaches") ||
+      location.pathname.includes("/admin/dashboard/routines") ||
       location.pathname.includes("/admin/dashboard/insights") ||
       location.pathname === "/admin/dashboard",
     [location.pathname]
@@ -186,6 +187,19 @@ const AdminDashboard = () => {
                 >
                   <Search size={15} />
                   Insights
+                </NavLink>
+                <NavLink
+                  to="/admin/dashboard/routines"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? "bg-slate-700 text-white"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`
+                  }
+                >
+                  <BookOpen size={15} />
+                  Routines
                 </NavLink>
               </div>
             )}
@@ -370,6 +384,7 @@ const AdminDashboard = () => {
           <Route path="/courses" element={<CreateInfrastructure initialTab="course" />} />
           <Route path="/offerings" element={<CreateInfrastructure initialTab="offering" />} />
           <Route path="/teaches" element={<CreateInfrastructure initialTab="teaches" />} />
+          <Route path="/routines" element={<CreateInfrastructure initialTab="routine" />} />
           <Route path="/insights" element={<InfrastructureInsights />} />
           <Route path="/dues/dues" element={<DuesManagement initialTab="dues" />} />
           <Route path="/dues/rules" element={<DuesManagement initialTab="rules" />} />

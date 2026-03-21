@@ -54,7 +54,10 @@ api.interceptors.response.use(
   },
   (error) => {
     finishRequest();
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+    const status = error.response?.status;
+    const message = String(error.response?.data?.message || '').toLowerCase();
+    const shouldLogout = status === 401 || (status === 403 && message.includes('invalid token'));
+    if (shouldLogout) {
       clearAuthSession();
     }
     return Promise.reject(error);
