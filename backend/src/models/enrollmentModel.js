@@ -153,6 +153,53 @@ class EnrollmentModel {
             }
         );
     }
+
+    getStudentResultTerms = (student_id, includeCurrentTerm = false) => {
+        return this.db.run(
+            'get_student_result_terms',
+            async () => {
+                const query = `
+                    SELECT DISTINCT
+                        t.id,
+                        t.term_number,
+                        t.start_date,
+                        t.end_date,
+                        t.department_id
+                    FROM student_enrollments se
+                    JOIN course_offerings co ON se.course_offering_id = co.id
+                    JOIN terms t ON t.id = co.term_id
+                    JOIN students s ON s.user_id = se.student_id
+                    JOIN terms current_term ON current_term.id = s.current_term
+                    WHERE se.student_id = $1
+                      AND se.status = 'Enrolled'
+                      AND (
+                        t.term_number < current_term.term_number
+                        OR ($2::BOOLEAN = TRUE AND t.term_number = current_term.term_number)
+                      )
+                    ORDER BY t.term_number ASC;
+                `;
+                const params = [student_id, includeCurrentTerm];
+                const result = await this.db.query_executor(query, params);
+                return result.rows;
+            }
+        );
+    }
+
+    getStudentTermResults = (student_id, term_id) => {
+        return this.db.run(
+            'get_student_term_results',
+            async () => {
+                const query = `
+                    SELECT *
+                    FROM compile_student_term_result($1, $2)
+                    ORDER BY course_code;
+                `;
+                const params = [student_id, term_id];
+                const result = await this.db.query_executor(query, params);
+                return result.rows;
+            }
+        );
+    }
 }
 
 module.exports = EnrollmentModel;
