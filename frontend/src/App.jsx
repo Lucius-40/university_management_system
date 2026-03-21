@@ -4,9 +4,30 @@ import { Loader2 } from 'lucide-react';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import StudentDashboard from './pages/StudentDashboard';
+import TeacherDashboard from './pages/TeacherDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
+import { useAuth } from './context/AuthContext';
 
 const NETWORK_LOADING_EVENT = 'app:network-loading';
+
+const DashboardRedirect = () => {
+  const { user } = useAuth();
+  const normalizedRole = String(user?.role || '').toLowerCase();
+
+  if (normalizedRole === 'system') {
+    return <Navigate to="/admin/dashboard/dashboard" replace />;
+  }
+
+  if (normalizedRole === 'student') {
+    return <Navigate to="/student/dashboard/profile/update-profile" replace />;
+  }
+
+  if (normalizedRole === 'teacher') {
+    return <Navigate to="/teacher/dashboard/pending-registrations" replace />;
+  }
+
+  return <Navigate to="/login" replace />;
+};
 
 function App() {
   const [isNetworkLoading, setIsNetworkLoading] = useState(false);
@@ -45,10 +66,19 @@ function App() {
           />
 
           <Route
+            path="/teacher/dashboard/*"
+            element={
+              <ProtectedRoute allowedRoles={['teacher']}>
+                <TeacherDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['system']}>
-                <Navigate to="/admin/dashboard/dashboard" replace />
+              <ProtectedRoute allowedRoles={['system', 'student', 'teacher']}>
+                <DashboardRedirect />
               </ProtectedRoute>
             }
           />

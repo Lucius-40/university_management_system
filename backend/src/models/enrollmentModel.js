@@ -154,6 +154,137 @@ class EnrollmentModel {
         );
     }
 
+    getPendingEnrollmentsForAdvisor = (teacher_id) => {
+        return this.db.run(
+            'get_pending_enrollments_for_advisor',
+            async () => {
+                const query = `
+                    SELECT
+                        se.id AS enrollment_id,
+                        se.student_id,
+                        se.course_offering_id,
+                        se.credit_when_taking,
+                        se.enrollment_timestamp,
+                        s.roll_number,
+                        u.name AS student_name,
+                        u.email AS student_email,
+                        c.id AS course_id,
+                        c.course_code,
+                        c.name AS course_name,
+                        c.credit_hours,
+                        t.id AS term_id,
+                        t.term_number,
+                        d.id AS department_id,
+                        d.code AS department_code,
+                        d.name AS department_name
+                    FROM student_enrollments se
+                    JOIN students s
+                      ON s.user_id = se.student_id
+                    JOIN users u
+                      ON u.id = s.user_id
+                    JOIN student_advisor_history sah
+                      ON sah.student_id = s.user_id
+                     AND sah.end_date IS NULL
+                    JOIN course_offerings co
+                      ON co.id = se.course_offering_id
+                    JOIN courses c
+                      ON c.id = co.course_id
+                    JOIN terms t
+                      ON t.id = co.term_id
+                    LEFT JOIN departments d
+                      ON d.id = t.department_id
+                    WHERE se.status = 'Pending'
+                      AND sah.teacher_id = $1
+                    ORDER BY se.enrollment_timestamp ASC, s.roll_number ASC, c.course_code ASC;
+                `;
+
+                const result = await this.db.query_executor(query, [teacher_id]);
+                return result.rows;
+            }
+        );
+    }
+
+    isTeacherCurrentAdvisorOfStudent = (teacher_id, student_id) => {
+        return this.db.run(
+            'is_teacher_current_advisor_of_student',
+            async () => {
+                const query = `
+                    SELECT 1
+                    FROM student_advisor_history sah
+                    WHERE sah.teacher_id = $1
+                      AND sah.student_id = $2
+                      AND sah.end_date IS NULL
+                    LIMIT 1;
+                `;
+
+                const result = await this.db.query_executor(query, [teacher_id, student_id]);
+                return result.rows.length > 0;
+            }
+        );
+    }
+
+    setEnrollmentDecisionIfPending = (enrollment_id, status, teacher_id = null) => {
+        return this.db.run(
+            'set_enrollment_decision_if_pending',
+            async () => {
+                const isApproved = status === 'Enrolled';
+                const query = `
+                    UPDATE student_enrollments
+                    SET
+                        status = $2::enrollment_status_enum,
+                        approved_timestamp = CASE
+                            WHEN $2::enrollment_status_enum = 'Enrolled'::enrollment_status_enum THEN NOW()
+                            ELSE NULL
+                        END,
+                        approved_by_teacher_id = CASE
+                            WHEN $2::enrollment_status_enum = 'Enrolled'::enrollment_status_enum THEN $3::INT
+                            ELSE NULL
+                        END
+                    WHERE id = $1
+                      AND status = 'Pending'
+                    RETURNING *;
+                `;
+
+                const result = await this.db.query_executor(query, [
+                    enrollment_id,
+                    status,
+                    isApproved ? teacher_id : null,
+                ]);
+                return result.rows[0] || null;
+            }
+        );
+    }
+
+    approveAllPendingForStudentByAdvisor = (student_id, teacher_id) => {
+        return this.db.run(
+            'approve_all_pending_for_student_by_advisor',
+            async () => {
+                const query = `
+                    WITH target_enrollments AS (
+                        SELECT se.id
+                        FROM student_enrollments se
+                        JOIN student_advisor_history sah
+                          ON sah.student_id = se.student_id
+                         AND sah.end_date IS NULL
+                        WHERE se.student_id = $1::INT
+                          AND se.status = 'Pending'
+                          AND sah.teacher_id = $2::INT
+                    )
+                    UPDATE student_enrollments se
+                    SET
+                        status = 'Enrolled'::enrollment_status_enum,
+                        approved_timestamp = NOW(),
+                        approved_by_teacher_id = $2::INT
+                    WHERE se.id IN (SELECT id FROM target_enrollments)
+                    RETURNING se.*;
+                `;
+
+                const result = await this.db.query_executor(query, [student_id, teacher_id]);
+                return result.rows;
+            }
+        );
+    }
+
     getStudentResultTerms = (student_id, includeCurrentTerm = false) => {
         return this.db.run(
             'get_student_result_terms',
