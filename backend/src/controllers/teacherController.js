@@ -1,11 +1,182 @@
 const TeacherModel = require('../models/teacherModel.js');
+const EnrollmentModel = require('../models/enrollmentModel.js');
 const DB_Connection = require('../database/db.js');
 const bcrypt = require('bcryptjs');
 
 class TeacherController {
     constructor() {
         this.teacherModel = new TeacherModel();
+        this.enrollmentModel = new EnrollmentModel();
         this.db = DB_Connection.getInstance();
+    }
+
+    getPendingRegistrations = async (req, res) => {
+        try {
+            const teacherId = Number(req.user?.id);
+            const requesterRole = String(req.user?.role || '').toLowerCase();
+
+            if (!teacherId || requesterRole !== 'teacher') {
+                return res.status(403).json({ message: 'Only teachers can access pending registrations.' });
+            }
+
+            const rows = await this.enrollmentModel.getPendingEnrollmentsForAdvisor(teacherId);
+            const grouped = new Map();
+
+            for (const row of rows) {
+                const key = String(row.student_id);
+                if (!grouped.has(key)) {
+                    grouped.set(key, {
+                        student: {
+                            id: row.student_id,
+                            name: row.student_name,
+                            roll_number: row.roll_number,
+                            email: row.student_email,
+                        },
+                        enrollments: [],
+                    });
+                }
+
+                grouped.get(key).enrollments.push({
+                    enrollment_id: row.enrollment_id,
+                    course_offering_id: row.course_offering_id,
+                    requested_at: row.enrollment_timestamp,
+                    credit_when_taking: row.credit_when_taking,
+                    course: {
+                        id: row.course_id,
+                        code: row.course_code,
+                        name: row.course_name,
+                        credit_hours: row.credit_hours,
+                    },
+                    term: {
+                        id: row.term_id,
+                        term_number: row.term_number,
+                        department: {
+                            id: row.department_id,
+                            code: row.department_code,
+                            name: row.department_name,
+                        },
+                    },
+                });
+            }
+
+            const pending_registrations = Array.from(grouped.values()).map((group) => ({
+                ...group,
+                total_enrollments: group.enrollments.length,
+            }));
+
+            return res.status(200).json({
+                teacher_id: teacherId,
+                total_students: pending_registrations.length,
+                total_enrollments: rows.length,
+                pending_registrations,
+            });
+        } catch (error) {
+            console.error('Get pending registrations error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    }
+
+    decidePendingEnrollment = async (req, res) => {
+        try {
+            const teacherId = Number(req.user?.id);
+            const requesterRole = String(req.user?.role || '').toLowerCase();
+            const enrollmentId = Number(req.params.enrollment_id);
+            const decision = String(req.body?.decision || '').toLowerCase();
+
+            if (!teacherId || requesterRole !== 'teacher') {
+                return res.status(403).json({ message: 'Only teachers can decide pending registrations.' });
+            }
+
+            if (!Number.isInteger(enrollmentId) || enrollmentId <= 0) {
+                return res.status(400).json({ message: 'Invalid enrollment id.' });
+            }
+
+            if (!['approve', 'deny'].includes(decision)) {
+                return res.status(400).json({ message: "decision must be either 'approve' or 'deny'." });
+            }
+
+            const enrollment = await this.enrollmentModel.getEnrollmentById(enrollmentId);
+            if (!enrollment) {
+                return res.status(404).json({ message: 'Enrollment not found.' });
+            }
+
+            if (String(enrollment.status || '') !== 'Pending') {
+                return res.status(409).json({ message: `Enrollment is already ${enrollment.status}.` });
+            }
+
+            const isAdvisor = await this.enrollmentModel.isTeacherCurrentAdvisorOfStudent(
+                teacherId,
+                Number(enrollment.student_id)
+            );
+            if (!isAdvisor) {
+                return res.status(403).json({ message: 'You are not the current advisor for this student.' });
+            }
+
+            const targetStatus = decision === 'approve' ? 'Enrolled' : 'Withdrawn';
+            const updated = await this.enrollmentModel.setEnrollmentDecisionIfPending(
+                enrollmentId,
+                targetStatus,
+                teacherId
+            );
+
+            if (!updated) {
+                return res.status(409).json({ message: 'Enrollment is no longer pending.' });
+            }
+
+            return res.status(200).json({
+                message:
+                    decision === 'approve'
+                        ? 'Registration approved successfully.'
+                        : 'Registration denied successfully.',
+                enrollment: updated,
+            });
+        } catch (error) {
+            console.error('Decide pending enrollment error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    }
+
+    approveAllPendingForStudent = async (req, res) => {
+        try {
+            const teacherId = Number(req.user?.id);
+            const requesterRole = String(req.user?.role || '').toLowerCase();
+            const studentId = Number(req.params.student_id);
+
+            if (!teacherId || requesterRole !== 'teacher') {
+                return res.status(403).json({ message: 'Only teachers can approve registrations.' });
+            }
+
+            if (!Number.isInteger(studentId) || studentId <= 0) {
+                return res.status(400).json({ message: 'Invalid student id.' });
+            }
+
+            const isAdvisor = await this.enrollmentModel.isTeacherCurrentAdvisorOfStudent(
+                teacherId,
+                studentId
+            );
+            if (!isAdvisor) {
+                return res.status(403).json({ message: 'You are not the current advisor for this student.' });
+            }
+
+            const updatedRows = await this.enrollmentModel.approveAllPendingForStudentByAdvisor(
+                studentId,
+                teacherId
+            );
+
+            if (updatedRows.length === 0) {
+                return res.status(409).json({ message: 'No pending registrations found for this student.' });
+            }
+
+            return res.status(200).json({
+                message: 'All pending registrations approved successfully.',
+                student_id: studentId,
+                approved_count: updatedRows.length,
+                enrollments: updatedRows,
+            });
+        } catch (error) {
+            console.error('Approve all pending registrations error:', error);
+            return res.status(500).json({ error: error.message });
+        }
     }
 
     createTeacher = async (req, res) => {

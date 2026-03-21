@@ -30,6 +30,8 @@ const Login = () => {
         navigate('/admin/dashboard/dashboard');
       } else if (normalizedRole === 'student') {
         navigate('/student/dashboard/profile/update-profile');
+      } else if (normalizedRole === 'teacher') {
+        navigate('/teacher/dashboard/pending-registrations');
       } else {
         setError('Unauthorized: Academic portals are separate.');
       }
