@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import Login from './pages/Login';
-import AdminDashboard from './pages/AdminDashboard';
+import StudentDashboard from './pages/StudentDashboard';
+import TeacherDashboard from './pages/TeacherDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useAuth } from './context/AuthContext';
 
@@ -12,8 +13,12 @@ const DashboardRedirect = () => {
   const { user } = useAuth();
   const normalizedRole = String(user?.role || '').toLowerCase();
 
-  if (normalizedRole === 'system') {
-    return <Navigate to="/admin/dashboard/dashboard" replace />;
+  if (normalizedRole === 'student') {
+    return <Navigate to="/student/dashboard/profile/update-profile" replace />;
+  }
+
+  if (normalizedRole === 'teacher') {
+    return <Navigate to="/teacher/dashboard/pending-registrations" replace />;
   }
 
   return <Navigate to="/login" replace />;
@@ -36,20 +41,29 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          
-          <Route 
-            path="/admin/dashboard/*" 
+
+          <Route
+            path="/student/dashboard/*"
             element={
-              <ProtectedRoute allowedRoles={['system']}>
-                <AdminDashboard />
+              <ProtectedRoute allowedRoles={['student']}>
+                <StudentDashboard />
               </ProtectedRoute>
-            } 
+            }
+          />
+
+          <Route
+            path="/teacher/dashboard/*"
+            element={
+              <ProtectedRoute allowedRoles={['teacher']}>
+                <TeacherDashboard />
+              </ProtectedRoute>
+            }
           />
 
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['system']}>
+              <ProtectedRoute allowedRoles={['student', 'teacher']}>
                 <DashboardRedirect />
               </ProtectedRoute>
             }

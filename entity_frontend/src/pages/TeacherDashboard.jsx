@@ -1,7 +1,9 @@
 import { Link, NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { ClipboardCheck, LayoutDashboard, LogOut } from 'lucide-react';
+import { ClipboardCheck, LayoutDashboard, LogOut, FileSpreadsheet, PenSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import PendingRegistrationsSection from './teacherDashboard/PendingRegistrationsSection';
+import MarkEntrySection from './teacherDashboard/MarkEntrySection';
+import MarkUploadSection from './teacherDashboard/MarkUploadSection';
 
 const TeacherDashboard = () => {
   const navigate = useNavigate();
@@ -39,6 +41,34 @@ const TeacherDashboard = () => {
             <ClipboardCheck size={18} />
             Pending Registrations
           </NavLink>
+
+          <NavLink
+            to="/teacher/dashboard/mark-entry"
+            className={({ isActive }) =>
+              `flex items-center gap-3 w-full p-3 rounded transition ${
+                isActive
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            <PenSquare size={18} />
+            Mark Entry
+          </NavLink>
+
+          <NavLink
+            to="/teacher/dashboard/mark-upload"
+            className={({ isActive }) =>
+              `flex items-center gap-3 w-full p-3 rounded transition ${
+                isActive
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            <FileSpreadsheet size={18} />
+            Mark Upload (CSV)
+          </NavLink>
         </nav>
 
         <div className="p-4 border-t border-slate-700">
@@ -60,6 +90,8 @@ const TeacherDashboard = () => {
             element={<Navigate to="/teacher/dashboard/pending-registrations" replace />}
           />
           <Route path="/pending-registrations" element={<PendingRegistrationsSection />} />
+          <Route path="/mark-entry" element={<MarkEntrySection />} />
+          <Route path="/mark-upload" element={<MarkUploadSection />} />
           <Route
             path="*"
             element={<Navigate to="/teacher/dashboard/pending-registrations" replace />}

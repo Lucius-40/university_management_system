@@ -14,10 +14,18 @@ router.delete('/dues/:id', auth.authenticateToken, paymentController.deleteDue);
 
 router.post('/rules', auth.authenticateToken, paymentController.createDueRule);
 router.get('/rules', auth.authenticateToken, paymentController.getAllDueRules);
+router.get('/rules/scopes', auth.authenticateToken, paymentController.getAllDueRuleScopes);
 router.post('/rules/:rule_id/scopes', auth.authenticateToken, paymentController.createDueRuleScope);
 router.post('/rules/:rule_id/amount-overrides', auth.authenticateToken, paymentController.createDueRuleAmountOverride);
 router.get('/rules/:rule_id/preview', auth.authenticateToken, paymentController.previewDueRuleIssuance);
 router.post('/rules/:rule_id/issue', auth.authenticateToken, paymentController.issueDueRuleNow);
+
+router.get('/my/dues', auth.authenticateToken, paymentController.getMyDues);
+router.get('/my/payment-requests', auth.authenticateToken, paymentController.getMyPaymentRequests);
+router.post('/my/payment-requests', auth.authenticateToken, paymentController.createMyPaymentRequest);
+
+router.get('/requests', auth.authenticateToken, paymentController.getPaymentRequests);
+router.patch('/requests/:request_id/review', auth.authenticateToken, paymentController.reviewPaymentRequest);
 
 router.post('/pay', auth.authenticateToken, paymentController.createStudentDuesPayment);
 router.get('/student/:student_id', auth.authenticateToken, paymentController.getStudentDuesPayments);

@@ -24,11 +24,14 @@ const Login = () => {
       const { accessToken, user } = response.data;
       const normalizedRole = String(user?.role || '').toLowerCase();
 
-      if (normalizedRole === 'system') {
+      if (normalizedRole === 'student') {
         login({ token: accessToken, user });
-        navigate('/admin/dashboard/dashboard');
+        navigate('/student/dashboard/profile/update-profile');
+      } else if (normalizedRole === 'teacher') {
+        login({ token: accessToken, user });
+        navigate('/teacher/dashboard/pending-registrations');
       } else {
-        setError('Unauthorized: This portal is only for system admin accounts.');
+        setError('Unauthorized: This portal is only for student and teacher accounts.');
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please check credentials.');
@@ -61,7 +64,7 @@ const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-10 w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                placeholder="admin@university.edu"
+                placeholder="roll.session.edu"
                 required
               />
             </div>
