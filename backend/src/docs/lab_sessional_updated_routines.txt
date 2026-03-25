@@ -1,0 +1,304 @@
+-- Updated routines for Lab/Sessional policy
+-- 1) Lab courses allow only Attendance + Final marking types (CT/Midterm blocked for both Draft and Published)
+-- 2) Lab percentage = Final(70%) + Attendance(30%)
+-- 3) Theory logic remains unchanged (credit-based best N CT + Attendance + Final)
+
+CREATE OR REPLACE FUNCTION trg_marking_components_limits()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  existing_ct_count INT;
+  existing_midterm_count INT;
+  existing_att_count INT;
+  existing_final_count INT;
+  exclude_id INT := NULL;
+  v_credit_count INT := 1;
+  v_ct_limit INT := 2;
+  v_course_type course_type_enum := 'Theory';
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    exclude_id := OLD.id;
+  END IF;
+
+  SELECT
+    COALESCE(c.type, 'Theory'::course_type_enum),
+    GREATEST(1, CEIL(COALESCE(c.credit_hours, 1))::INT)
+  INTO v_course_type, v_credit_count
+  FROM student_enrollments se
+  JOIN course_offerings co ON co.id = se.course_offering_id
+  JOIN courses c ON c.id = co.course_id
+  WHERE se.id = NEW.enrollment_id
+  LIMIT 1;
+
+  v_ct_limit := v_credit_count + 1;
+
+  -- Count existing Published components for the same enrollment, excluding current row on UPDATE.
+  SELECT COUNT(*) INTO existing_ct_count
+  FROM marking_components
+  WHERE enrollment_id = NEW.enrollment_id
+    AND status = 'Published'
+    AND type = 'CT'
+    AND (id IS DISTINCT FROM exclude_id);
+
+  SELECT COUNT(*) INTO existing_midterm_count
+  FROM marking_components
+  WHERE enrollment_id = NEW.enrollment_id
+    AND status = 'Published'
+    AND type = 'Midterm'
+    AND (id IS DISTINCT FROM exclude_id);
+
+  SELECT COUNT(*) INTO existing_att_count
+  FROM marking_components
+  WHERE enrollment_id = NEW.enrollment_id
+    AND status = 'Published'
+    AND type = 'Attendance'
+    AND (id IS DISTINCT FROM exclude_id);
+
+  SELECT COUNT(*) INTO existing_final_count
+  FROM marking_components
+  WHERE enrollment_id = NEW.enrollment_id
+    AND status = 'Published'
+    AND type = 'Final'
+    AND (id IS DISTINCT FROM exclude_id);
+
+  -- Lab/Sessional policy
+  IF v_course_type = 'Lab' THEN
+    -- Block unsupported marking types for Lab in both Draft and Published states.
+    IF NEW.type IN ('CT', 'Midterm') THEN
+      RAISE EXCEPTION 'Invalid marking type for lab enrollment_id=%: type=% is not allowed. Only Attendance and Final are supported.',
+        NEW.enrollment_id, NEW.type;
+    END IF;
+
+    -- Published limits for Lab: exactly at most one Attendance and one Final.
+    IF NEW.status = 'Published' THEN
+      IF NEW.type = 'Attendance' AND existing_att_count + 1 > 1 THEN
+        RAISE EXCEPTION 'Limit exceeded: lab enrollment_id=% already has % Published Attendance component(s); max allowed is 1.',
+          NEW.enrollment_id, existing_att_count;
+      ELSIF NEW.type = 'Final' AND existing_final_count + 1 > 1 THEN
+        RAISE EXCEPTION 'Limit exceeded: lab enrollment_id=% already has % Published Final component(s); max allowed is 1.',
+          NEW.enrollment_id, existing_final_count;
+      END IF;
+    END IF;
+
+    -- Also guard against existing published violations.
+    IF existing_ct_count > 0 THEN
+      RAISE EXCEPTION 'Existing data violation: lab enrollment_id=% has % Published CT component(s); CT is not allowed for lab.',
+        NEW.enrollment_id, existing_ct_count;
+    END IF;
+    IF existing_midterm_count > 0 THEN
+      RAISE EXCEPTION 'Existing data violation: lab enrollment_id=% has % Published Midterm component(s); Midterm is not allowed for lab.',
+        NEW.enrollment_id, existing_midterm_count;
+    END IF;
+    IF existing_att_count > 1 THEN
+      RAISE EXCEPTION 'Existing data violation: lab enrollment_id=% has % Published Attendance component(s) (>1).',
+        NEW.enrollment_id, existing_att_count;
+    END IF;
+    IF existing_final_count > 1 THEN
+      RAISE EXCEPTION 'Existing data violation: lab enrollment_id=% has % Published Final component(s) (>1).',
+        NEW.enrollment_id, existing_final_count;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  -- Theory policy (existing behavior)
+  IF NEW.status = 'Published' THEN
+    IF NEW.type = 'CT' THEN
+      IF existing_ct_count + 1 > v_ct_limit THEN
+        RAISE EXCEPTION 'Limit exceeded: enrollment_id=% already has % Published CT components; max allowed is % for % credit(s).',
+          NEW.enrollment_id, existing_ct_count, v_ct_limit, v_credit_count;
+      END IF;
+    ELSIF NEW.type = 'Attendance' THEN
+      IF existing_att_count + 1 > 1 THEN
+        RAISE EXCEPTION 'Limit exceeded: enrollment_id=% already has % Published Attendance components; max allowed is 1.',
+          NEW.enrollment_id, existing_att_count;
+      END IF;
+    ELSIF NEW.type = 'Final' THEN
+      IF existing_final_count + 1 > 1 THEN
+        RAISE EXCEPTION 'Limit exceeded: enrollment_id=% already has % Published Final components; max allowed is 1.',
+          NEW.enrollment_id, existing_final_count;
+      END IF;
+    END IF;
+  END IF;
+
+  -- Keep existing published data consistent for theory paths as well.
+  IF existing_att_count > 1 THEN
+    RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published Attendance components (>1).',
+      NEW.enrollment_id, existing_att_count;
+  END IF;
+  IF existing_final_count > 1 THEN
+    RAISE EXCEPTION 'Existing data violation: enrollment_id=% has % Published Final components (>1).',
+      NEW.enrollment_id, existing_final_count;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS marking_components_limits_trg ON marking_components;
+CREATE TRIGGER marking_components_limits_trg
+BEFORE INSERT OR UPDATE ON marking_components
+FOR EACH ROW
+EXECUTE FUNCTION trg_marking_components_limits();
+
+
+CREATE OR REPLACE FUNCTION compile_student_term_result(p_student_id INT, p_term_id INT)
+RETURNS TABLE (
+  enrollment_id INT,
+  course_offering_id INT,
+  course_id INT,
+  course_code VARCHAR,
+  course_name VARCHAR,
+  ct_best3_score NUMERIC(8,2),
+  attendance_score NUMERIC(8,2),
+  final_score NUMERIC(8,2),
+  total_score NUMERIC(8,2),
+  percentage NUMERIC(5,2),
+  grade VARCHAR
+)
+LANGUAGE sql
+AS $$
+WITH enrolls AS (
+  SELECT
+    se.id AS enrollment_id,
+    se.course_offering_id,
+    c.id AS course_id,
+    c.course_code,
+    c.name AS course_name,
+    COALESCE(c.type, 'Theory'::course_type_enum) AS course_type,
+    GREATEST(1, CEIL(COALESCE(c.credit_hours, 1))::INT) AS ct_best_count
+  FROM student_enrollments se
+  JOIN course_offerings co ON co.id = se.course_offering_id
+  JOIN courses c ON c.id = co.course_id
+  WHERE se.student_id = p_student_id
+    AND co.term_id = p_term_id
+),
+published_marks AS (
+  SELECT
+    mc.id,
+    mc.enrollment_id,
+    mc.type,
+    e.course_type,
+    COALESCE(mc.total_marks, 0) AS total_marks,
+    COALESCE(mc.marks_obtained, 0) AS marks_obtained,
+    CASE
+      -- Lab/Sessional: 70% Final + 30% Attendance
+      WHEN e.course_type = 'Lab' AND mc.type = 'Final' THEN
+        CASE
+          WHEN COALESCE(mc.total_marks, 0) = 0 THEN 0
+          ELSE (COALESCE(mc.marks_obtained, 0)::numeric / COALESCE(mc.total_marks, 0)::numeric) * 70.0
+        END
+      WHEN e.course_type = 'Lab' AND mc.type = 'Attendance' THEN
+        CASE
+          WHEN COALESCE(mc.total_marks, 0) = 0 THEN 0
+          ELSE (COALESCE(mc.marks_obtained, 0)::numeric / COALESCE(mc.total_marks, 0)::numeric) * 30.0
+        END
+
+      -- Theory: unchanged distribution
+      WHEN e.course_type <> 'Lab' AND mc.type = 'CT' THEN
+        CASE
+          WHEN COALESCE(mc.total_marks, 0) = 0 THEN 0
+          ELSE (COALESCE(mc.marks_obtained, 0)::numeric / COALESCE(mc.total_marks, 0)::numeric) * 20.0
+        END
+      WHEN e.course_type <> 'Lab' AND mc.type = 'Attendance' THEN
+        CASE
+          WHEN COALESCE(mc.total_marks, 0) = 0 THEN 0
+          ELSE (COALESCE(mc.marks_obtained, 0)::numeric / COALESCE(mc.total_marks, 0)::numeric) * 30.0
+        END
+      WHEN e.course_type <> 'Lab' AND mc.type = 'Final' THEN
+        CASE
+          WHEN COALESCE(mc.total_marks, 0) = 0 THEN 0
+          ELSE (COALESCE(mc.marks_obtained, 0)::numeric / COALESCE(mc.total_marks, 0)::numeric) * 210.0
+        END
+      ELSE 0
+    END AS normalized_score
+  FROM marking_components mc
+  JOIN enrolls e ON e.enrollment_id = mc.enrollment_id
+  WHERE mc.status = 'Published'
+),
+ct_ranked AS (
+  SELECT
+    pm.*,
+    ROW_NUMBER() OVER (PARTITION BY pm.enrollment_id ORDER BY pm.normalized_score DESC, pm.id) AS rn
+  FROM published_marks pm
+  WHERE pm.type = 'CT'
+    AND pm.course_type <> 'Lab'
+),
+ct_bestn AS (
+  SELECT
+    e.enrollment_id,
+    COALESCE(SUM(cr.normalized_score), 0)::numeric(8,2) AS ct_bestn_score
+  FROM enrolls e
+  LEFT JOIN ct_ranked cr
+    ON cr.enrollment_id = e.enrollment_id
+   AND cr.rn <= e.ct_best_count
+  GROUP BY e.enrollment_id
+),
+attendance_sum AS (
+  SELECT
+    enrollment_id,
+    COALESCE(SUM(normalized_score), 0)::numeric(8,2) AS attendance_score
+  FROM published_marks
+  WHERE type = 'Attendance'
+  GROUP BY enrollment_id
+),
+final_sum AS (
+  SELECT
+    enrollment_id,
+    COALESCE(SUM(normalized_score), 0)::numeric(8,2) AS final_score
+  FROM published_marks
+  WHERE type = 'Final'
+  GROUP BY enrollment_id
+),
+scored AS (
+  SELECT
+    e.enrollment_id,
+    e.course_offering_id,
+    e.course_id,
+    e.course_code,
+    e.course_name,
+    e.course_type,
+    COALESCE(ct.ct_bestn_score, 0)::numeric(8,2) AS ct_best3_score,
+    COALESCE(att.attendance_score, 0)::numeric(8,2) AS attendance_score,
+    COALESCE(fin.final_score, 0)::numeric(8,2) AS final_score,
+    CASE
+      WHEN e.course_type = 'Lab' THEN
+        (COALESCE(att.attendance_score, 0) + COALESCE(fin.final_score, 0))::numeric(8,2)
+      ELSE
+        (COALESCE(ct.ct_bestn_score, 0) + COALESCE(att.attendance_score, 0) + COALESCE(fin.final_score, 0))::numeric(8,2)
+    END AS total_score,
+    CASE
+      WHEN e.course_type = 'Lab' THEN
+        ROUND((COALESCE(att.attendance_score, 0) + COALESCE(fin.final_score, 0))::numeric, 2)
+      ELSE
+        ROUND((((COALESCE(ct.ct_bestn_score, 0) + COALESCE(att.attendance_score, 0) + COALESCE(fin.final_score, 0)) / 300.0) * 100.0)::numeric, 2)
+    END AS percentage
+  FROM enrolls e
+  LEFT JOIN ct_bestn ct ON ct.enrollment_id = e.enrollment_id
+  LEFT JOIN attendance_sum att ON att.enrollment_id = e.enrollment_id
+  LEFT JOIN final_sum fin ON fin.enrollment_id = e.enrollment_id
+)
+SELECT
+  s.enrollment_id,
+  s.course_offering_id,
+  s.course_id,
+  s.course_code,
+  s.course_name,
+  s.ct_best3_score,
+  s.attendance_score,
+  s.final_score,
+  s.total_score,
+  s.percentage,
+  CASE
+    WHEN s.percentage >= 80 THEN 'A+'
+    WHEN s.percentage >= 75 THEN 'A'
+    WHEN s.percentage >= 70 THEN 'A-'
+    WHEN s.percentage >= 65 THEN 'B'
+    WHEN s.percentage >= 60 THEN 'C'
+    WHEN s.percentage >= 55 THEN 'D'
+    ELSE 'F'
+  END AS grade
+FROM scored s
+ORDER BY s.course_code;
+$$;

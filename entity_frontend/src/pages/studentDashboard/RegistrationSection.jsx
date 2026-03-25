@@ -35,10 +35,13 @@ const RegistrationSection = () => {
   const fallbackSession = useMemo(() => readAuthSession(), []);
   const sessionUser = user || fallbackSession.user;
   const userId = sessionUser?.id;
-
-  const [termNumber, setTermNumber] = useState(
-    parseNumber(sessionUser?.current_term, DEFAULT_TERM_NUMBER)
+  const initialTermNumber = parseNumber(
+    sessionUser?.current_term_number ?? sessionUser?.term_number,
+    DEFAULT_TERM_NUMBER
   );
+
+  const [termNumber, setTermNumber] = useState(initialTermNumber);
+  const [hasSyncedCurrentTerm, setHasSyncedCurrentTerm] = useState(false);
   const [eligibility, setEligibility] = useState(null);
   const [courses, setCourses] = useState([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState([]);
@@ -132,9 +135,31 @@ const RegistrationSection = () => {
   };
 
   useEffect(() => {
+    if (!userId || hasSyncedCurrentTerm) return;
+
+    const syncCurrentTermNumber = async () => {
+      try {
+        const response = await api.get(`/users/profile/student/${encodeURIComponent(userId)}`);
+        const currentTermNumber = parseNumber(response.data?.profile?.term_number, 0);
+
+        if (currentTermNumber > 0) {
+          setTermNumber(currentTermNumber);
+        }
+      } catch (_error) {
+        // Keep fallback term if profile lookup fails.
+      } finally {
+        setHasSyncedCurrentTerm(true);
+      }
+    };
+
+    syncCurrentTermNumber();
+  }, [hasSyncedCurrentTerm, userId]);
+
+  useEffect(() => {
+    if (!hasSyncedCurrentTerm) return;
     fetchEligibility();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, termNumber]);
+  }, [userId, termNumber, hasSyncedCurrentTerm]);
 
   const toggleCourseSelection = (courseId) => {
     setSelectedCourseIds((prev) => {

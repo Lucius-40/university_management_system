@@ -331,6 +331,104 @@ class StudentController {
         }
     }
 
+    getAllResults = async (req, res) => {
+        try {
+            const student_id = Number(req.params.user_id);
+            if (!Number.isInteger(student_id) || student_id <= 0) {
+                return res.status(400).json({ error: 'Invalid student id.' });
+            }
+
+            const includeCurrentTerm = String(req.query.include_current || '').toLowerCase() === 'true';
+
+            const student = await this.studentModel.getStudentByUserId(student_id);
+            if (!student) {
+                return res.status(404).json({ error: 'Student not found' });
+            }
+
+            const terms = await this.enrollmentModel.getStudentResultTerms(student_id, includeCurrentTerm);
+
+            const termResults = [];
+            for (const term of terms) {
+                const rows = await this.enrollmentModel.getStudentTermResults(student_id, term.id);
+
+                termResults.push({
+                    term: {
+                        id: term.id,
+                        term_number: term.term_number,
+                        start_date: term.start_date,
+                        end_date: term.end_date,
+                        department_id: term.department_id,
+                    },
+                    results: rows,
+                });
+            }
+
+            res.status(200).json({
+                student_id,
+                include_current: includeCurrentTerm,
+                terms: termResults,
+            });
+        } catch (error) {
+            console.error('Get all student results error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getResultsByTermNumber = async (req, res) => {
+        try {
+            const student_id = Number(req.params.user_id);
+            const term_number = Number(req.params.term_number);
+
+            if (!Number.isInteger(student_id) || student_id <= 0) {
+                return res.status(400).json({ error: 'Invalid student id.' });
+            }
+            if (!Number.isInteger(term_number) || term_number <= 0) {
+                return res.status(400).json({ error: 'Invalid term number.' });
+            }
+
+            const student = await this.studentModel.getStudentByUserId(student_id);
+            if (!student) {
+                return res.status(404).json({ error: 'Student not found' });
+            }
+
+            const studentDept = await this.studentModel.getStudentDepartment(student_id);
+            if (!studentDept || !studentDept.department_id) {
+                return res.status(400).json({ error: 'Student has no department assigned' });
+            }
+
+            const termQuery = `
+                SELECT * FROM terms
+                WHERE term_number = $1 AND department_id = $2
+                ORDER BY start_date DESC
+                LIMIT 1;
+            `;
+            const termResult = await this.db.query_executor(termQuery, [term_number, studentDept.department_id]);
+
+            if (termResult.rows.length === 0) {
+                return res.status(404).json({ error: `Term ${term_number} not found for department` });
+            }
+
+            const term = termResult.rows[0];
+            const rows = await this.enrollmentModel.getStudentTermResults(student_id, term.id);
+
+            res.status(200).json({
+                student_id,
+                term: {
+                    id: term.id,
+                    term_number: term.term_number,
+                    start_date: term.start_date,
+                    end_date: term.end_date,
+                    department_id: term.department_id,
+                },
+                results: rows,
+            });
+        } catch (error) {
+            console.error('Get student result by term number error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+
     getStudentByUserId = async (req, res) => {
         try {
             const student = await this.studentModel.getStudentByUserId(req.params.user_id);
@@ -739,6 +837,8 @@ class StudentController {
             res.status(500).json({ error: error.message });
         }
     }
+
+
 
     getRegistrationEligibility = async (req, res) => {
         try {

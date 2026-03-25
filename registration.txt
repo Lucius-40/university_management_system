@@ -1,0 +1,175 @@
+[{
+  "id": 73,
+  "name": "Kamrul Rahman",
+  "email": "~",
+  "password_hash": "$2b$13$GQqXQDdoO1sTbTFm9LmtNuZIFCFLKwTftjDwFc3ymhbu6D12TIglC",
+  "refresh_token": null,
+  "mobile_number": "01799661105",
+  "mobile_banking_number": null,
+  "bank_account_number": null,
+  "permanent_address": "Village: Uttar Khatunpara, P.O.: Deynagar, Feni",
+  "present_address": "House 12, Road 25, Motijheel, Dhaka",
+  "birth_reg_number": null,
+  "nid_number": null,
+  "passport_number": null,
+  "birth_date": "2004-02-10",
+  "emergency_contact_name": null,
+  "emergency_contact_number": null,
+  "emergency_contact_relation": null,
+  "role": "student",
+  "user_id": 73,
+  "roll_number": "CSE2300106",
+  "official_mail": "cse2300106@std.university.edu.bd",
+  "status": "Active",
+  "current_term": 5,
+  "id'": 5,
+  "term_number": 3,
+  "start_date": "2026-03-20",
+  "end_date": "2026-09-20",
+  "department_id": 1,
+  "max_credit": 21.5,
+  "id''": 72,
+  "user_id'": 73,
+  "user_name": "Kamrul Rahman",
+  "raw_password": "CSE2300106@Univ2026",
+  "has_changed": false
+}]
+
+
+
+
+
+TERMS INFO : 
+[{
+  "id": 33,
+  "term_number": 1,
+  "start_date": "2024-01-01",
+  "end_date": "2024-05-31",
+  "department_id": 1,
+  "max_credit": 23.0
+}, {
+  "id": 34,
+  "term_number": 2,
+  "start_date": "2024-06-01",
+  "end_date": "2024-11-30",
+  "department_id": 1,
+  "max_credit": 23.0
+}, {
+  "id": 35,
+  "term_number": 3,
+  "start_date": "2025-01-01",
+  "end_date": "2025-06-30",
+  "department_id": 1,
+  "max_credit": 23.0
+}, {
+  "id": 36,
+  "term_number": 4,
+  "start_date": "2025-07-15",
+  "end_date": "2026-01-01",
+  "department_id": 1,
+  "max_credit": 23.0
+}]
+
+
+-- Failed query:
+-- select user_id , roll_number
+-- from students 
+-- where roll_number like 'CSE%'
+-- order by roll_number ;
+-- 
+-- select * from terms 
+-- where department_id = 1 ;
+-- 
+-- select * from users u join students s on (u.id = s.user_id) join terms t on (t.id = s.term)
+-- where u.id = 6 ;
+SELECT * FROM users u JOIN students s ON (u.id = s.user_id) JOIN terms t ON (t.id = s.current_term) join initial_credentials i on (i.user_id= u.id) WHERE u.id = 16
+
+
+SELECT * FROM TERMS WHERE DEPARTMENT_ID = 1 AND ID > 32  ;
+
+INSERT INTO TERMS (term_number, start_date, end_date, department_id)VALUES (1, '2024-01-01', '2024-05-31', 1),
+    (2, '2024-06-01', '2024-11-30', 1),
+    (3, '2025-01-01', '2025-06-30', 1),
+    (4, '2025-07-15', '2026-01-01',1);
+
+INSERT INTO sections (term_id, name)
+VALUES 
+    (33, 'A'),
+    (33, 'B'),
+    (34, 'A'),
+    (34, 'B'),
+    (35, 'A'),
+    (35, 'B'),
+    (36, 'A'),
+    (36, 'B');
+
+
+INSERT INTO course_offerings (id, term_id, course_id, max_capacity)
+VALUES 
+    (1, 33, 1, 220),   
+    (2, 33, 2, 220),   
+    (3, 33, 3, 220),   
+    (4, 33, 6, 220),   
+    (5, 33, 7, 220),   
+    (6, 33, 8, 220),
+    (7, 33, 9, 220),   
+    (8, 33, 10, 220),
+
+    (9, 34, 11, 220),   
+    (10, 34, 12, 220),   
+    (11, 34, 13, 220),   
+    (12, 34, 14, 220),   
+    (13, 34, 15, 220),   
+    (14, 34, 16, 220),
+    (15, 34, 17, 220),   
+    (16, 34, 18, 220),
+    (17, 34, 19, 220),
+
+    (18, 35, 20, 220),   
+    (19, 35, 21, 220),   
+    (20, 35, 22, 220),   
+    (21, 35, 23, 220),   
+    (22, 35, 24, 220),   
+    (23, 35, 25, 220),
+    (24, 35, 34, 220),   
+    (25, 35, 35, 220),
+    (26, 35, 36, 220);
+
+
+INSERT INTO student_advisor_history (student_id, teacher_id, start_date, end_date, change_reason)
+VALUES (16, 2017, '2026-02-01', NULL, 'Initial assignment');
+
+
+INSERT INTO student_enrollments (student_id, course_offering_id, credit_when_taking, status, grade, is_retake)
+  VALUES (16, 1, 0, 'Enrolled', 'A', false),
+        (16, 2, 0, 'Enrolled', 'B', false),
+        (16, 3, 0, 'Enrolled', 'A', false),
+        (16, 4, 0, 'Enrolled', 'B', false),
+        (16, 5, 0, 'Enrolled', 'A', false),
+        (16, 6, 0, 'Enrolled', 'A', false),
+        (16, 7, 0, 'Enrolled', 'A', false),
+        (16, 8, 0, 'Enrolled', 'A', false),
+  
+        (16, 9, 0, 'Enrolled', 'A', false),
+        (16, 10, 0, 'Enrolled', 'B', false),
+        (16, 11, 0, 'Enrolled', 'A', false),
+        (16, 12, 0, 'Enrolled', 'B', false),
+        (16, 13, 0, 'Enrolled', 'A', false),
+        (16, 14, 0, 'Enrolled', 'A', false),
+        (16, 15, 0, 'Enrolled', 'B', false),
+        (16, 16, 0, 'Enrolled', 'A', false),
+        (16, 17, 0, 'Enrolled', 'A', false),
+  
+        (16, 18, 0, 'Enrolled', 'A', false),
+        (16, 19, 0, 'Enrolled', 'B', false),
+        (16, 20, 0, 'Enrolled', 'A', false),
+        (16, 21, 0, 'Enrolled', 'B', false),
+        (16, 22, 0, 'Enrolled', 'A', false),
+        (16, 23, 0, 'Enrolled', 'A', false),
+        (16, 24, 0, 'Enrolled', 'A', false),
+        (16, 25, 0, 'Enrolled', 'A', false),
+        (26, 26, 0, 'Enrolled', 'A', false);
+
+
+
+    
