@@ -1,7 +1,7 @@
 [{
   "id": 73,
   "name": "Kamrul Rahman",
-  "email": "kamrul.rahman83@hotmail.com",
+  "email": "~",
   "password_hash": "$2b$13$GQqXQDdoO1sTbTFm9LmtNuZIFCFLKwTftjDwFc3ymhbu6D12TIglC",
   "refresh_token": null,
   "mobile_number": "01799661105",
