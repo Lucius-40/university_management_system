@@ -13,6 +13,14 @@ class PaymentController {
         return true;
     }
 
+    requireStudentRole = (req, res) => {
+        if (req.user?.role !== 'student') {
+            res.status(403).json({ error: 'Only students can perform this action.' });
+            return false;
+        }
+        return true;
+    }
+
     createDue = async (req, res) => {
         try {
             if (!this.requireSystemRole(req, res)) return;
@@ -88,6 +96,14 @@ class PaymentController {
 
     getStudentDuesPayments = async (req, res) => {
         try {
+            const targetStudentId = Number(req.params.student_id);
+            const actorId = Number(req.user?.id);
+            const isSystem = req.user?.role === 'system';
+
+            if (!isSystem && (!Number.isFinite(actorId) || actorId !== targetStudentId)) {
+                return res.status(403).json({ error: 'You can only view your own dues payments.' });
+            }
+
             const payments = await this.paymentModel.getStudentDuesPayments(req.params.student_id);
             res.status(200).json(payments);
         } catch (error) {
@@ -113,6 +129,17 @@ class PaymentController {
             res.status(200).json(rules);
         } catch (error) {
             console.error('Get Due Rules error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getAllDueRuleScopes = async (req, res) => {
+        try {
+            if (!this.requireSystemRole(req, res)) return;
+            const scopes = await this.paymentModel.getAllDueRuleScopes();
+            res.status(200).json(scopes);
+        } catch (error) {
+            console.error('Get Due Rule Scopes error:', error);
             res.status(500).json({ error: error.message });
         }
     }
@@ -148,12 +175,12 @@ class PaymentController {
                 return res.status(400).json({ error: 'Valid rule_id is required.' });
             }
 
-            const rows = await this.paymentModel.previewDueRuleIssuance(ruleId);
+            const snapshot = await this.paymentModel.previewDueRuleIssuanceSnapshot(ruleId);
             res.status(200).json({
                 rule_id: ruleId,
-                matched_count: rows.length,
-                issuable_count: rows.filter((row) => row.can_issue).length,
-                rows,
+                matched_count: snapshot.matched_count,
+                issuable_count: snapshot.issuable_count,
+                by_department: snapshot.by_department,
             });
         } catch (error) {
             console.error('Preview Due Rule Issuance error:', error);
@@ -178,6 +205,94 @@ class PaymentController {
         } catch (error) {
             console.error('Issue Due Rule error:', error);
             res.status(500).json({ error: error.message });
+        }
+    }
+
+    getMyDues = async (req, res) => {
+        try {
+            if (!this.requireStudentRole(req, res)) return;
+            const studentId = Number(req.user?.id);
+
+            if (!Number.isFinite(studentId) || studentId <= 0) {
+                return res.status(400).json({ error: 'Invalid authenticated student id.' });
+            }
+
+            const dues = await this.paymentModel.getStudentDuesWithRequestState(studentId);
+            res.status(200).json(dues);
+        } catch (error) {
+            console.error('Get My Dues error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    getMyPaymentRequests = async (req, res) => {
+        try {
+            if (!this.requireStudentRole(req, res)) return;
+            const studentId = Number(req.user?.id);
+
+            if (!Number.isFinite(studentId) || studentId <= 0) {
+                return res.status(400).json({ error: 'Invalid authenticated student id.' });
+            }
+
+            const requests = await this.paymentModel.getPaymentRequestsByStudentId(studentId);
+            res.status(200).json(requests);
+        } catch (error) {
+            console.error('Get My Payment Requests error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    createMyPaymentRequest = async (req, res) => {
+        try {
+            if (!this.requireStudentRole(req, res)) return;
+            const studentId = Number(req.user?.id);
+
+            if (!Number.isFinite(studentId) || studentId <= 0) {
+                return res.status(400).json({ error: 'Invalid authenticated student id.' });
+            }
+
+            const request = await this.paymentModel.createStudentPaymentRequest(studentId, req.body || {});
+            res.status(201).json(request);
+        } catch (error) {
+            console.error('Create My Payment Request error:', error);
+            res.status(error.status || 500).json({ error: error.message });
+        }
+    }
+
+    getPaymentRequests = async (req, res) => {
+        try {
+            if (!this.requireSystemRole(req, res)) return;
+            const requests = await this.paymentModel.getAllPaymentRequests();
+            res.status(200).json(requests);
+        } catch (error) {
+            console.error('Get Payment Requests error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    reviewPaymentRequest = async (req, res) => {
+        try {
+            if (!this.requireSystemRole(req, res)) return;
+            const requestId = Number(req.params.request_id);
+
+            if (!Number.isFinite(requestId) || requestId <= 0) {
+                return res.status(400).json({ error: 'Valid request_id is required.' });
+            }
+
+            const action = String(req.body?.action || '').trim();
+            const reviewNote = req.body?.review_note || null;
+
+            const result = await this.paymentModel.reviewStudentPaymentRequest({
+                requestId,
+                action,
+                reviewerId: Number(req.user?.id) || null,
+                reviewNote,
+            });
+
+            res.status(200).json(result);
+        } catch (error) {
+            console.error('Review Payment Request error:', error);
+            res.status(error.status || 500).json({ error: error.message });
         }
     }
 }

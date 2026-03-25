@@ -1,0 +1,67 @@
+import axios from 'axios';
+import { clearAuthSession, readAuthSession } from '../utils/authStorage';
+
+const NETWORK_LOADING_EVENT = 'app:network-loading';
+let inFlightRequests = 0;
+
+const emitNetworkLoading = () => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent(NETWORK_LOADING_EVENT, {
+      detail: {
+        isLoading: inFlightRequests > 0,
+        count: inFlightRequests,
+      },
+    })
+  );
+};
+
+const startRequest = () => {
+  inFlightRequests += 1;
+  emitNetworkLoading();
+};
+
+const finishRequest = () => {
+  inFlightRequests = Math.max(0, inFlightRequests - 1);
+  emitNetworkLoading();
+};
+
+const api = axios.create({
+  baseURL: 'http://localhost:3000/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+api.interceptors.request.use(
+  (config) => {
+    startRequest();
+    const { token } = readAuthSession();
+    if (token && token !== 'undefined' && token !== 'null') {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+api.interceptors.response.use(
+  (response) => {
+    finishRequest();
+    return response;
+  },
+  (error) => {
+    finishRequest();
+    const status = error.response?.status;
+    const message = String(error.response?.data?.message || '').toLowerCase();
+    const shouldLogout = status === 401 || (status === 403 && message.includes('invalid token'));
+    if (shouldLogout) {
+      clearAuthSession();
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default api;

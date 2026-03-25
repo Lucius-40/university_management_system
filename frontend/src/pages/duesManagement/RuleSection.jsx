@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+
 const RuleSection = ({
   activeMode,
   ruleForm,
@@ -5,6 +7,9 @@ const RuleSection = ({
   rules,
   dues,
   issuingRuleId,
+  loadingSnapshotRuleId,
+  ruleSnapshots,
+  handleLoadRuleSnapshot,
   handleRuleSubmit,
   handleIssueRule,
 }) => {
@@ -128,35 +133,80 @@ const RuleSection = ({
               <th className="p-2 text-left">Frequency</th>
               <th className="p-2 text-left">Required</th>
               <th className="p-2 text-left">Active</th>
+              <th className="p-2 text-left">Snapshot</th>
               <th className="p-2 text-left">Issue</th>
             </tr>
           </thead>
           <tbody>
             {rules.length === 0 ? (
               <tr>
-                <td colSpan="6" className="p-4 text-center text-slate-500">
+                <td colSpan="7" className="p-4 text-center text-slate-500">
                   No rules found.
                 </td>
               </tr>
             ) : null}
             {rules.map((rule) => (
-              <tr key={rule.id} className="border-t">
-                <td className="p-2">{rule.name}</td>
-                <td className="p-2">{rule.due_name}</td>
-                <td className="p-2">{rule.frequency}</td>
-                <td className="p-2">{rule.required_for_registration ? "Yes" : "No"}</td>
-                <td className="p-2">{rule.is_active ? "Yes" : "No"}</td>
-                <td className="p-2">
-                  <button
-                    type="button"
-                    onClick={() => handleIssueRule(rule.id)}
-                    disabled={issuingRuleId === rule.id}
-                    className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-                  >
-                    {issuingRuleId === rule.id ? "Issuing..." : "Issue"}
-                  </button>
-                </td>
-              </tr>
+              <Fragment key={rule.id}>
+                <tr className="border-t">
+                  <td className="p-2">{rule.name}</td>
+                  <td className="p-2">{rule.due_name}</td>
+                  <td className="p-2">{rule.frequency}</td>
+                  <td className="p-2">{rule.required_for_registration ? "Yes" : "No"}</td>
+                  <td className="p-2">{rule.is_active ? "Yes" : "No"}</td>
+                  <td className="p-2">
+                    <button
+                      type="button"
+                      onClick={() => handleLoadRuleSnapshot(rule.id)}
+                      disabled={loadingSnapshotRuleId === rule.id}
+                      className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {loadingSnapshotRuleId === rule.id ? "Loading..." : "View Snapshot"}
+                    </button>
+                  </td>
+                  <td className="p-2">
+                    <button
+                      type="button"
+                      onClick={() => handleIssueRule(rule.id)}
+                      disabled={issuingRuleId === rule.id}
+                      className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {issuingRuleId === rule.id ? "Issuing..." : "Issue"}
+                    </button>
+                  </td>
+                </tr>
+
+                {ruleSnapshots?.[rule.id] ? (
+                  <tr className="border-t bg-slate-50">
+                    <td className="p-3" colSpan="7">
+                      <div className="text-xs text-slate-600 mb-2">
+                        Matched: {ruleSnapshots[rule.id].matched_count || 0} | Issuable now: {ruleSnapshots[rule.id].issuable_count || 0}
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-slate-100">
+                            <tr>
+                              <th className="p-2 text-left">Department</th>
+                              <th className="p-2 text-left">Matched Students</th>
+                              <th className="p-2 text-left">Issuable Now</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(ruleSnapshots[rule.id].by_department || []).map((row) => (
+                              <tr key={`${rule.id}-${row.department_code}-${row.department_name}`} className="border-t">
+                                <td className="p-2">
+                                  {row.department_code} - {row.department_name}
+                                </td>
+                                <td className="p-2">{row.matched_count}</td>
+                                <td className="p-2">{row.issuable_count}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             ))}
           </tbody>
         </table>

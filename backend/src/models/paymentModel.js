@@ -147,6 +147,14 @@ const RULE_CANDIDATE_PREVIEW_QUERY = `
     ORDER BY e.department_code NULLS LAST, e.term_number NULLS LAST, e.roll_number;
 `;
 
+const VALID_PAYMENT_METHODS = new Set(['Mobile Banking', 'Bank Transfer']);
+const VALID_REQUEST_ACTIONS = new Set(['approve', 'reject']);
+const RULE_CANDIDATE_PREVIEW_QUERY_EMBEDDABLE = RULE_CANDIDATE_PREVIEW_QUERY.trim().replace(/;\s*$/, '');
+const RULE_CANDIDATE_FAST_QUERY_EMBEDDABLE = RULE_CANDIDATE_PREVIEW_QUERY_EMBEDDABLE.replace(
+    /ORDER BY e\.department_code NULLS LAST, e\.term_number NULLS LAST, e\.roll_number\s*$/,
+    ''
+);
+
 class PaymentModel {
     constructor() {
         this.db = DB_Connection.getInstance();
@@ -388,6 +396,28 @@ class PaymentModel {
         });
     }
 
+    getAllDueRuleScopes = () => {
+        return this.db.run('get_all_due_rule_scopes', async () => {
+            const query = `
+                SELECT
+                    drs.*,
+                    dr.name AS rule_name,
+                    dr.due_id,
+                    d.name AS due_name,
+                    dept.code AS department_code,
+                    dept.name AS department_name
+                FROM due_rule_scopes drs
+                JOIN due_rules dr ON dr.id = drs.rule_id
+                JOIN dues d ON d.id = dr.due_id
+                LEFT JOIN departments dept ON dept.id = drs.department_id
+                ORDER BY drs.rule_id DESC, drs.id DESC;
+            `;
+
+            const result = await this.db.query_executor(query);
+            return result.rows;
+        });
+    }
+
     createDueRuleScope = (rule_id, payload) => {
         return this.db.run('create_due_rule_scope', async () => {
             const {
@@ -443,6 +473,46 @@ class PaymentModel {
         });
     }
 
+    previewDueRuleIssuanceSnapshot = (rule_id) => {
+        return this.db.run('preview_due_rule_issuance_snapshot', async () => {
+            const summaryQuery = `
+                WITH preview AS (
+                    ${RULE_CANDIDATE_FAST_QUERY_EMBEDDABLE}
+                )
+                SELECT
+                    COALESCE(COUNT(*), 0)::INT AS matched_count,
+                    COALESCE(SUM(CASE WHEN can_issue THEN 1 ELSE 0 END), 0)::INT AS issuable_count
+                FROM preview;
+            `;
+
+            const byDepartmentQuery = `
+                WITH preview AS (
+                    ${RULE_CANDIDATE_FAST_QUERY_EMBEDDABLE}
+                )
+                SELECT
+                    COALESCE(department_code, 'N/A') AS department_code,
+                    COALESCE(department_name, 'Unassigned') AS department_name,
+                    COUNT(*)::INT AS matched_count,
+                    SUM(CASE WHEN can_issue THEN 1 ELSE 0 END)::INT AS issuable_count
+                FROM preview
+                GROUP BY COALESCE(department_code, 'N/A'), COALESCE(department_name, 'Unassigned')
+                ORDER BY department_code, department_name;
+            `;
+
+            const [summaryResult, departmentResult] = await Promise.all([
+                this.db.query_executor(summaryQuery, [rule_id]),
+                this.db.query_executor(byDepartmentQuery, [rule_id]),
+            ]);
+
+            const summary = summaryResult.rows[0] || { matched_count: 0, issuable_count: 0 };
+            return {
+                matched_count: Number(summary.matched_count || 0),
+                issuable_count: Number(summary.issuable_count || 0),
+                by_department: departmentResult.rows,
+            };
+        });
+    }
+
     issueDueRuleNow = (rule_id, actorId = null) => {
         return this.db.run('issue_due_rule_now', async () => {
             const client = await this.db.pool.connect();
@@ -450,29 +520,20 @@ class PaymentModel {
             try {
                 await client.query('BEGIN');
 
-                const previewResult = await client.query(RULE_CANDIDATE_PREVIEW_QUERY, [rule_id]);
-                const previewRows = previewResult.rows;
+                const note = actorId
+                    ? `Issued from admin ${actorId}`
+                    : 'Issued from admin action';
 
-                if (previewRows.length === 0) {
-                    await client.query('COMMIT');
-                    return {
-                        rule_id: Number(rule_id),
-                        issued_count: 0,
-                        skipped_count: 0,
-                        matched_count: 0,
-                    };
-                }
-
-                let issuedCount = 0;
-                let skippedCount = 0;
-
-                for (const row of previewRows) {
-                    if (!row.can_issue) {
-                        skippedCount += 1;
-                        continue;
-                    }
-
-                    const createPaymentQuery = `
+                const issueQuery = `
+                    WITH preview AS (
+                        ${RULE_CANDIDATE_FAST_QUERY_EMBEDDABLE}
+                    ),
+                    issuable AS (
+                        SELECT *
+                        FROM preview
+                        WHERE can_issue = TRUE
+                    ),
+                    inserted_payments AS (
                         INSERT INTO student_dues_payment (
                             student_id,
                             due_id,
@@ -485,23 +546,21 @@ class PaymentModel {
                             due_date,
                             required_for_registration
                         )
-                        VALUES ($1, $2, 0, $3, 'Overdue', $4, $5, CURRENT_TIMESTAMP, $4, $6)
-                        RETURNING id;
-                    `;
-
-                    const createPaymentParams = [
-                        row.student_id,
-                        row.due_id,
-                        row.override_amount,
-                        row.due_date,
-                        row.term_id,
-                        row.required_for_registration,
-                    ];
-
-                    const paymentResult = await client.query(createPaymentQuery, createPaymentParams);
-                    const paymentId = paymentResult.rows[0]?.id;
-
-                    const logQuery = `
+                        SELECT
+                            i.student_id,
+                            i.due_id,
+                            0,
+                            i.override_amount,
+                            'Overdue',
+                            i.due_date,
+                            i.term_id,
+                            CURRENT_TIMESTAMP,
+                            i.due_date,
+                            i.required_for_registration
+                        FROM issuable i
+                        RETURNING id, student_id, term_id
+                    ),
+                    inserted_logs AS (
                         INSERT INTO due_rule_issuance_log (
                             rule_id,
                             student_id,
@@ -509,17 +568,25 @@ class PaymentModel {
                             student_due_payment_id,
                             note
                         )
-                        VALUES ($1, $2, $3, $4, $5)
-                        ON CONFLICT (rule_id, student_id, term_id) DO NOTHING;
-                    `;
+                        SELECT
+                            $1,
+                            ip.student_id,
+                            ip.term_id,
+                            ip.id,
+                            $2
+                        FROM inserted_payments ip
+                        ON CONFLICT (rule_id, student_id, term_id) DO NOTHING
+                        RETURNING 1
+                    )
+                    SELECT
+                        (SELECT COUNT(*)::INT FROM preview) AS matched_count,
+                        (SELECT COUNT(*)::INT FROM inserted_payments) AS issued_count;
+                `;
 
-                    const note = actorId
-                        ? `Issued from admin ${actorId}`
-                        : 'Issued from admin action';
-
-                    await client.query(logQuery, [rule_id, row.student_id, row.term_id, paymentId, note]);
-                    issuedCount += 1;
-                }
+                const issueResult = await client.query(issueQuery, [rule_id, note]);
+                const matchedCount = Number(issueResult.rows[0]?.matched_count || 0);
+                const issuedCount = Number(issueResult.rows[0]?.issued_count || 0);
+                const skippedCount = Math.max(matchedCount - issuedCount, 0);
 
                 await client.query('COMMIT');
 
@@ -527,7 +594,398 @@ class PaymentModel {
                     rule_id: Number(rule_id),
                     issued_count: issuedCount,
                     skipped_count: skippedCount,
-                    matched_count: previewRows.length,
+                    matched_count: matchedCount,
+                };
+            } catch (error) {
+                await client.query('ROLLBACK');
+                throw error;
+            } finally {
+                client.release();
+            }
+        });
+    }
+
+    ensurePaymentRequestTable = async () => {
+        const query = `
+            CREATE TABLE IF NOT EXISTS student_due_payment_requests (
+                id INTEGER PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
+                student_due_payment_id INT NOT NULL REFERENCES student_dues_payment(id) ON DELETE CASCADE,
+                student_id INT NOT NULL REFERENCES students(user_id) ON DELETE CASCADE,
+                requested_amount DECIMAL(10, 2) NOT NULL CHECK (requested_amount > 0),
+                payment_method payment_method_enum NOT NULL,
+                mobile_banking_number VARCHAR(20),
+                note TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Approved', 'Rejected')),
+                review_note TEXT,
+                reviewed_by INT REFERENCES users(id) ON DELETE SET NULL,
+                reviewed_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_student_due_payment_requests_student
+                ON student_due_payment_requests (student_id, status, created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_student_due_payment_requests_due_payment
+                ON student_due_payment_requests (student_due_payment_id, status, created_at DESC);
+        `;
+
+        await this.db.query_executor(query);
+    }
+
+    getStudentDuesWithRequestState = (studentId) => {
+        return this.db.run('get_student_dues_with_request_state', async () => {
+            await this.ensurePaymentRequestTable();
+
+            const query = `
+                SELECT
+                    sdp.*,
+                    d.name AS due_name,
+                    d.amount AS due_amount,
+                    d.bank_account_number,
+                    COALESCE(sdp.amount_due_override, d.amount) AS effective_due_amount,
+                    GREATEST(COALESCE(sdp.amount_due_override, d.amount) - COALESCE(sdp.amount_paid, 0), 0) AS outstanding_amount,
+                    (
+                        COALESCE(sdp.required_for_registration, d.required_for_registration, TRUE) = TRUE
+                        AND COALESCE(d.is_active, TRUE) = TRUE
+                        AND sdp.waived_at IS NULL
+                        AND COALESCE(sdp.amount_paid, 0) < COALESCE(sdp.amount_due_override, d.amount)
+                    ) AS is_blocking_registration,
+                    latest_request.id AS latest_request_id,
+                    latest_request.status AS latest_request_status,
+                    latest_request.requested_amount AS latest_requested_amount,
+                    latest_request.created_at AS latest_request_created_at
+                FROM student_dues_payment sdp
+                JOIN dues d ON d.id = sdp.due_id
+                LEFT JOIN LATERAL (
+                    SELECT
+                        pr.id,
+                        pr.status,
+                        pr.requested_amount,
+                        pr.created_at
+                    FROM student_due_payment_requests pr
+                    WHERE pr.student_due_payment_id = sdp.id
+                    ORDER BY pr.created_at DESC, pr.id DESC
+                    LIMIT 1
+                ) latest_request ON TRUE
+                WHERE sdp.student_id = $1
+                ORDER BY
+                    (COALESCE(sdp.required_for_registration, d.required_for_registration, TRUE) = TRUE
+                        AND COALESCE(d.is_active, TRUE) = TRUE
+                        AND sdp.waived_at IS NULL
+                        AND COALESCE(sdp.amount_paid, 0) < COALESCE(sdp.amount_due_override, d.amount)
+                    ) DESC,
+                    COALESCE(sdp.due_date, sdp.deadline) NULLS LAST,
+                    sdp.id DESC;
+            `;
+
+            const result = await this.db.query_executor(query, [studentId]);
+            return result.rows;
+        });
+    }
+
+    getPaymentRequestsByStudentId = (studentId) => {
+        return this.db.run('get_payment_requests_by_student', async () => {
+            await this.ensurePaymentRequestTable();
+
+            const query = `
+                SELECT
+                    pr.*,
+                    sdp.due_id,
+                    d.name AS due_name,
+                    COALESCE(sdp.amount_due_override, d.amount) AS effective_due_amount,
+                    COALESCE(sdp.amount_paid, 0) AS amount_paid,
+                    GREATEST(COALESCE(sdp.amount_due_override, d.amount) - COALESCE(sdp.amount_paid, 0), 0) AS outstanding_amount
+                FROM student_due_payment_requests pr
+                JOIN student_dues_payment sdp ON sdp.id = pr.student_due_payment_id
+                JOIN dues d ON d.id = sdp.due_id
+                WHERE pr.student_id = $1
+                ORDER BY pr.created_at DESC, pr.id DESC;
+            `;
+
+            const result = await this.db.query_executor(query, [studentId]);
+            return result.rows;
+        });
+    }
+
+    createStudentPaymentRequest = (studentId, payload) => {
+        return this.db.run('create_student_payment_request', async () => {
+            await this.ensurePaymentRequestTable();
+
+            const duePaymentId = Number(payload.student_due_payment_id);
+            const requestedAmount = Number(payload.requested_amount);
+            const paymentMethod = String(payload.payment_method || '').trim();
+            const mobileBankingNumber = payload.mobile_banking_number || null;
+            const note = payload.note || null;
+
+            if (!Number.isFinite(duePaymentId) || duePaymentId <= 0) {
+                const error = new Error('Valid student_due_payment_id is required.');
+                error.status = 400;
+                throw error;
+            }
+
+            if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+                const error = new Error('requested_amount must be greater than zero.');
+                error.status = 400;
+                throw error;
+            }
+
+            if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+                const error = new Error('payment_method must be Mobile Banking or Bank Transfer.');
+                error.status = 400;
+                throw error;
+            }
+
+            if (paymentMethod === 'Mobile Banking' && !String(mobileBankingNumber || '').trim()) {
+                const error = new Error('mobile_banking_number is required for Mobile Banking requests.');
+                error.status = 400;
+                throw error;
+            }
+
+            const duePaymentQuery = `
+                SELECT
+                    sdp.id,
+                    sdp.student_id,
+                    sdp.due_id,
+                    COALESCE(sdp.amount_paid, 0) AS amount_paid,
+                    COALESCE(sdp.amount_due_override, d.amount) AS effective_due_amount,
+                    d.name AS due_name,
+                    sdp.waived_at,
+                    COALESCE(d.is_active, TRUE) AS due_active
+                FROM student_dues_payment sdp
+                JOIN dues d ON d.id = sdp.due_id
+                WHERE sdp.id = $1
+                  AND sdp.student_id = $2
+                LIMIT 1;
+            `;
+
+            const duePaymentResult = await this.db.query_executor(duePaymentQuery, [duePaymentId, studentId]);
+            const duePayment = duePaymentResult.rows[0];
+
+            if (!duePayment) {
+                const error = new Error('Due payment record not found for this student.');
+                error.status = 404;
+                throw error;
+            }
+
+            if (!duePayment.due_active || duePayment.waived_at) {
+                const error = new Error('This due item is not requestable.');
+                error.status = 400;
+                throw error;
+            }
+
+            const outstandingAmount = Math.max(Number(duePayment.effective_due_amount || 0) - Number(duePayment.amount_paid || 0), 0);
+            if (outstandingAmount <= 0) {
+                const error = new Error('This due is already fully paid.');
+                error.status = 400;
+                throw error;
+            }
+
+            if (requestedAmount > outstandingAmount) {
+                const error = new Error('Requested amount cannot exceed outstanding amount.');
+                error.status = 400;
+                throw error;
+            }
+
+            const pendingCheckQuery = `
+                SELECT id
+                FROM student_due_payment_requests
+                WHERE student_due_payment_id = $1
+                  AND status = 'Pending'
+                LIMIT 1;
+            `;
+
+            const pendingCheckResult = await this.db.query_executor(pendingCheckQuery, [duePaymentId]);
+            if (pendingCheckResult.rows.length > 0) {
+                const error = new Error('You already have a pending request for this due item.');
+                error.status = 409;
+                throw error;
+            }
+
+            const insertQuery = `
+                INSERT INTO student_due_payment_requests (
+                    student_due_payment_id,
+                    student_id,
+                    requested_amount,
+                    payment_method,
+                    mobile_banking_number,
+                    note,
+                    status
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'Pending')
+                RETURNING *;
+            `;
+
+            const insertParams = [
+                duePaymentId,
+                studentId,
+                requestedAmount,
+                paymentMethod,
+                mobileBankingNumber,
+                note,
+            ];
+
+            const insertResult = await this.db.query_executor(insertQuery, insertParams);
+
+            return {
+                ...insertResult.rows[0],
+                due_name: duePayment.due_name,
+                effective_due_amount: Number(duePayment.effective_due_amount || 0),
+                outstanding_amount: outstandingAmount,
+            };
+        });
+    }
+
+    getAllPaymentRequests = () => {
+        return this.db.run('get_all_payment_requests', async () => {
+            await this.ensurePaymentRequestTable();
+
+            const query = `
+                SELECT
+                    pr.*,
+                    sdp.term_id,
+                    sdp.due_date,
+                    sdp.required_for_registration,
+                    sdp.amount_paid,
+                    COALESCE(sdp.amount_due_override, d.amount) AS effective_due_amount,
+                    GREATEST(COALESCE(sdp.amount_due_override, d.amount) - COALESCE(sdp.amount_paid, 0), 0) AS outstanding_amount,
+                    d.name AS due_name,
+                    u.name AS student_name,
+                    s.roll_number,
+                    reviewer.name AS reviewed_by_name
+                FROM student_due_payment_requests pr
+                JOIN student_dues_payment sdp ON sdp.id = pr.student_due_payment_id
+                JOIN dues d ON d.id = sdp.due_id
+                LEFT JOIN users u ON u.id = pr.student_id
+                LEFT JOIN students s ON s.user_id = pr.student_id
+                LEFT JOIN users reviewer ON reviewer.id = pr.reviewed_by
+                ORDER BY
+                    CASE pr.status
+                        WHEN 'Pending' THEN 0
+                        WHEN 'Approved' THEN 1
+                        WHEN 'Rejected' THEN 2
+                        ELSE 3
+                    END,
+                    pr.created_at DESC,
+                    pr.id DESC;
+            `;
+
+            const result = await this.db.query_executor(query);
+            return result.rows;
+        });
+    }
+
+    reviewStudentPaymentRequest = ({ requestId, action, reviewerId, reviewNote = null }) => {
+        return this.db.run('review_student_payment_request', async () => {
+            await this.ensurePaymentRequestTable();
+
+            const normalizedAction = String(action || '').trim().toLowerCase();
+            if (!VALID_REQUEST_ACTIONS.has(normalizedAction)) {
+                const error = new Error('action must be either approve or reject.');
+                error.status = 400;
+                throw error;
+            }
+
+            const nextStatus = normalizedAction === 'approve' ? 'Approved' : 'Rejected';
+
+            const client = await this.db.pool.connect();
+            try {
+                await client.query('BEGIN');
+
+                const requestQuery = `
+                    SELECT
+                        pr.*,
+                        sdp.student_id,
+                        sdp.amount_paid,
+                        sdp.amount_due_override,
+                        sdp.payment_method AS current_payment_method,
+                        sdp.mobile_banking_number AS current_mobile_banking_number,
+                        sdp.due_id,
+                        d.amount AS due_amount
+                    FROM student_due_payment_requests pr
+                    JOIN student_dues_payment sdp ON sdp.id = pr.student_due_payment_id
+                    JOIN dues d ON d.id = sdp.due_id
+                    WHERE pr.id = $1
+                    FOR UPDATE;
+                `;
+
+                const requestResult = await client.query(requestQuery, [requestId]);
+                const requestRow = requestResult.rows[0];
+
+                if (!requestRow) {
+                    const error = new Error('Payment request not found.');
+                    error.status = 404;
+                    throw error;
+                }
+
+                if (requestRow.status !== 'Pending') {
+                    const error = new Error('Only pending requests can be reviewed.');
+                    error.status = 409;
+                    throw error;
+                }
+
+                let updatedDuePayment = null;
+
+                if (nextStatus === 'Approved') {
+                    const effectiveDueAmount = Number(requestRow.amount_due_override ?? requestRow.due_amount ?? 0);
+                    const currentPaid = Number(requestRow.amount_paid || 0);
+                    const requestedAmount = Number(requestRow.requested_amount || 0);
+                    const nextAmountPaid = Math.max(0, Math.min(effectiveDueAmount, currentPaid + requestedAmount));
+
+                    let nextPaymentStatus = 'Overdue';
+                    if (nextAmountPaid >= effectiveDueAmount) {
+                        nextPaymentStatus = 'Paid';
+                    } else if (nextAmountPaid > 0) {
+                        nextPaymentStatus = 'Partial';
+                    }
+
+                    const updateDuePaymentQuery = `
+                        UPDATE student_dues_payment
+                        SET
+                            amount_paid = $2,
+                            payment_method = COALESCE($3, payment_method),
+                            mobile_banking_number = COALESCE($4, mobile_banking_number),
+                            paid_at = CURRENT_TIMESTAMP,
+                            status = $5
+                        WHERE id = $1
+                        RETURNING *;
+                    `;
+
+                    const updateDuePaymentResult = await client.query(updateDuePaymentQuery, [
+                        requestRow.student_due_payment_id,
+                        nextAmountPaid,
+                        requestRow.payment_method,
+                        requestRow.mobile_banking_number,
+                        nextPaymentStatus,
+                    ]);
+
+                    updatedDuePayment = updateDuePaymentResult.rows[0] || null;
+                }
+
+                const updateRequestQuery = `
+                    UPDATE student_due_payment_requests
+                    SET
+                        status = $2,
+                        review_note = $3,
+                        reviewed_by = $4,
+                        reviewed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $1
+                    RETURNING *;
+                `;
+
+                const updateRequestResult = await client.query(updateRequestQuery, [
+                    requestId,
+                    nextStatus,
+                    reviewNote,
+                    reviewerId,
+                ]);
+
+                await client.query('COMMIT');
+
+                return {
+                    request: updateRequestResult.rows[0],
+                    due_payment: updatedDuePayment,
                 };
             } catch (error) {
                 await client.query('ROLLBACK');
