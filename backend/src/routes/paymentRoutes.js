@@ -25,7 +25,6 @@ router.get('/my/payment-requests', auth.authenticateToken, paymentController.get
 router.post('/my/payment-requests', auth.authenticateToken, paymentController.createMyPaymentRequest);
 
 router.get('/requests', auth.authenticateToken, paymentController.getPaymentRequests);
-router.patch('/requests/:request_id/review', auth.authenticateToken, paymentController.reviewPaymentRequest);
 
 router.post('/pay', auth.authenticateToken, paymentController.createStudentDuesPayment);
 router.get('/student/:student_id', auth.authenticateToken, paymentController.getStudentDuesPayments);
