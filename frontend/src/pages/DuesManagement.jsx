@@ -82,7 +82,6 @@ const DuesManagement = ({ initialTab = "dues" }) => {
 
   const [dueSearch, setDueSearch] = useState("");
   const [issuingRuleId, setIssuingRuleId] = useState(null);
-  const [reviewingRequestId, setReviewingRequestId] = useState(null);
 
   const [dueForm, setDueForm] = useState(INITIAL_DUE_FORM);
   const [editingDueId, setEditingDueId] = useState(null);
@@ -330,30 +329,6 @@ const DuesManagement = ({ initialTab = "dues" }) => {
     }
   };
 
-  const handleReviewPaymentRequest = async (requestId, action) => {
-    clearMessage();
-    setReviewingRequestId(requestId);
-
-    try {
-      await api.patch(`/payments/requests/${requestId}/review`, {
-        action,
-      });
-
-      setMessage({
-        type: "success",
-        text: action === "approve" ? "Payment request approved." : "Payment request rejected.",
-      });
-      await fetchMeta();
-    } catch (error) {
-      setMessage({
-        type: "error",
-        text: error.response?.data?.error || "Failed to review payment request.",
-      });
-    } finally {
-      setReviewingRequestId(null);
-    }
-  };
-
   const handleIssueRule = async (ruleId) => {
     const confirmed = window.confirm("Issue this rule now for all matched students?");
     if (!confirmed) return;
@@ -471,8 +446,6 @@ const DuesManagement = ({ initialTab = "dues" }) => {
           departmentById={departmentById}
           handlePaymentSubmit={handlePaymentSubmit}
           paymentRequests={paymentRequests}
-          reviewingRequestId={reviewingRequestId}
-          handleReviewPaymentRequest={handleReviewPaymentRequest}
         />
       );
     }
