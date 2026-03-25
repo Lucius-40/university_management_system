@@ -251,8 +251,8 @@ class PaymentController {
                 return res.status(400).json({ error: 'Invalid authenticated student id.' });
             }
 
-            const request = await this.paymentModel.createStudentPaymentRequest(studentId, req.body || {});
-            res.status(201).json(request);
+            const result = await this.paymentModel.createStudentPaymentRequest(studentId, req.body || {});
+            res.status(201).json(result);
         } catch (error) {
             console.error('Create My Payment Request error:', error);
             res.status(error.status || 500).json({ error: error.message });
@@ -267,32 +267,6 @@ class PaymentController {
         } catch (error) {
             console.error('Get Payment Requests error:', error);
             res.status(500).json({ error: error.message });
-        }
-    }
-
-    reviewPaymentRequest = async (req, res) => {
-        try {
-            if (!this.requireSystemRole(req, res)) return;
-            const requestId = Number(req.params.request_id);
-
-            if (!Number.isFinite(requestId) || requestId <= 0) {
-                return res.status(400).json({ error: 'Valid request_id is required.' });
-            }
-
-            const action = String(req.body?.action || '').trim();
-            const reviewNote = req.body?.review_note || null;
-
-            const result = await this.paymentModel.reviewStudentPaymentRequest({
-                requestId,
-                action,
-                reviewerId: Number(req.user?.id) || null,
-                reviewNote,
-            });
-
-            res.status(200).json(result);
-        } catch (error) {
-            console.error('Review Payment Request error:', error);
-            res.status(error.status || 500).json({ error: error.message });
         }
     }
 }

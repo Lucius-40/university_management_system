@@ -142,7 +142,7 @@ const DuesStatusSection = () => {
 
       setMessage({
         type: 'success',
-        text: `Payment request submitted for ${dueRow.due_name}. Awaiting admin review.`,
+        text: `Payment recorded for ${dueRow.due_name}.`,
       });
 
       await loadDues();
@@ -152,7 +152,7 @@ const DuesStatusSection = () => {
         text:
           error.response?.data?.error ||
           error.response?.data?.message ||
-          'Failed to submit payment request.',
+            'Failed to record payment.',
       });
     } finally {
       setSubmittingDueId(null);
@@ -166,7 +166,7 @@ const DuesStatusSection = () => {
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">Dues Status</h1>
             <p className="text-slate-600 mt-1">
-              Review outstanding dues and submit payment requests for admin verification.
+              Review outstanding dues and record your payment submissions.
             </p>
           </div>
           <button
@@ -247,7 +247,6 @@ const DuesStatusSection = () => {
       {!isLoading && outstandingDues.length > 0
         ? outstandingDues.map((row) => {
             const form = getRequestFormState(row.id);
-            const hasPendingRequest = row.latest_request_status === 'Pending';
 
             return (
               <div key={row.id} className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm space-y-4">
@@ -273,9 +272,9 @@ const DuesStatusSection = () => {
                         Blocks Registration
                       </span>
                     ) : null}
-                    {hasPendingRequest ? (
+                    {row.latest_request_status ? (
                       <span className="inline-block rounded bg-blue-100 text-blue-800 px-2 py-1 text-xs font-semibold">
-                        Request Pending
+                        Last Record: {row.latest_request_status}
                       </span>
                     ) : null}
                   </div>
@@ -297,7 +296,7 @@ const DuesStatusSection = () => {
                 </div>
 
                 <div className="border-t border-slate-200 pt-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-900">Submit Payment Request</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">Record Payment</h3>
                   <div className="grid gap-3 md:grid-cols-2">
                     <label className="text-sm space-y-1">
                       <span className="text-slate-700">Requested Amount</span>
@@ -310,7 +309,7 @@ const DuesStatusSection = () => {
                           updateRequestForm(row.id, { requested_amount: event.target.value })
                         }
                         className="w-full p-2 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        disabled={hasPendingRequest || submittingDueId === row.id}
+                        disabled={submittingDueId === row.id}
                       />
                     </label>
 
@@ -322,7 +321,7 @@ const DuesStatusSection = () => {
                           updateRequestForm(row.id, { payment_method: event.target.value })
                         }
                         className="w-full p-2 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        disabled={hasPendingRequest || submittingDueId === row.id}
+                        disabled={submittingDueId === row.id}
                       >
                         {PAYMENT_METHODS.map((method) => (
                           <option key={method} value={method}>
@@ -343,7 +342,7 @@ const DuesStatusSection = () => {
                             })
                           }
                           className="w-full p-2 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          disabled={hasPendingRequest || submittingDueId === row.id}
+                          disabled={submittingDueId === row.id}
                         />
                       </label>
                     ) : null}
@@ -355,7 +354,7 @@ const DuesStatusSection = () => {
                         onChange={(event) => updateRequestForm(row.id, { note: event.target.value })}
                         placeholder="Reference number or additional details"
                         className="w-full p-2 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        disabled={hasPendingRequest || submittingDueId === row.id}
+                        disabled={submittingDueId === row.id}
                       />
                     </label>
                   </div>
@@ -365,9 +364,9 @@ const DuesStatusSection = () => {
                       type="button"
                       onClick={() => submitPaymentRequest(row)}
                       className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-                      disabled={hasPendingRequest || submittingDueId === row.id}
+                      disabled={submittingDueId === row.id}
                     >
-                      {submittingDueId === row.id ? 'Submitting...' : 'Submit Request'}
+                      {submittingDueId === row.id ? 'Recording...' : 'Record Payment'}
                     </button>
                   </div>
                 </div>

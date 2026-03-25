@@ -8,8 +8,6 @@ const AssignPaymentSection = ({
   departmentById,
   handlePaymentSubmit,
   paymentRequests,
-  reviewingRequestId,
-  handleReviewPaymentRequest,
 }) => {
   if (activeMode === "insertion") {
     return (
@@ -191,9 +189,9 @@ const AssignPaymentSection = ({
   return (
     <div className="rounded-lg border bg-white p-4 space-y-4">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900">Student Payment Requests</h3>
+        <h3 className="text-lg font-semibold text-slate-900">Student Payment Records</h3>
         <p className="text-sm text-slate-600 mt-1">
-          Review submitted payment requests and approve to apply paid amounts to student dues.
+          Student-submitted payments are auto-recorded and applied to due balances.
         </p>
       </div>
 
@@ -207,21 +205,17 @@ const AssignPaymentSection = ({
               <th className="p-2 text-left">Outstanding</th>
               <th className="p-2 text-left">Method</th>
               <th className="p-2 text-left">Status</th>
-              <th className="p-2 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
             {paymentRequests.length === 0 ? (
               <tr>
-                <td colSpan="7" className="p-4 text-center text-slate-500">
-                  No payment requests yet.
+                <td colSpan="6" className="p-4 text-center text-slate-500">
+                  No payment records yet.
                 </td>
               </tr>
             ) : null}
             {paymentRequests.map((request) => {
-              const isPending = request.status === "Pending";
-              const isBusy = reviewingRequestId === request.id;
-
               return (
                 <tr className="border-t" key={request.id}>
                   <td className="p-2">
@@ -240,39 +234,13 @@ const AssignPaymentSection = ({
                   <td className="p-2">
                     <span
                       className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
-                        request.status === "Pending"
-                          ? "bg-amber-100 text-amber-800"
-                          : request.status === "Approved"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
+                        request.status === "Recorded"
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-slate-100 text-slate-700"
                       }`}
                     >
                       {request.status}
                     </span>
-                  </td>
-                  <td className="p-2">
-                    {isPending ? (
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleReviewPaymentRequest(request.id, "approve")}
-                          className="px-2 py-1 rounded border border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-60"
-                          disabled={isBusy}
-                        >
-                          {isBusy ? "Processing..." : "Approve"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleReviewPaymentRequest(request.id, "reject")}
-                          className="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60"
-                          disabled={isBusy}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-slate-500">Reviewed</span>
-                    )}
                   </td>
                 </tr>
               );
