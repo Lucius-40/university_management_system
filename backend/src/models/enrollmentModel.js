@@ -55,6 +55,25 @@ class EnrollmentModel {
         );
     }
 
+    getActiveEnrollmentsByStudentAndTerm = (student_id, term_id) => {
+        return this.db.run(
+            'get_active_enrollments_by_student_and_term',
+            async () => {
+                const query = `
+                    SELECT se.*, co.term_id, co.course_id, co.max_capacity
+                    FROM student_enrollments se
+                    JOIN course_offerings co ON se.course_offering_id = co.id
+                    WHERE se.student_id = $1
+                      AND co.term_id = $2
+                      AND se.status IN ('Pending', 'Enrolled')
+                    ORDER BY se.enrollment_timestamp DESC;
+                `;
+                const result = await this.db.query_executor(query, [student_id, term_id]);
+                return result.rows;
+            }
+        );
+    }
+
     checkExistingEnrollment = (student_id, course_offering_id) => {
         return this.db.run(
             'check_existing_enrollment',
@@ -67,6 +86,42 @@ class EnrollmentModel {
                 const params = [student_id, course_offering_id];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
+            }
+        );
+    }
+
+    hasAnyPendingEnrollment = (student_id) => {
+        return this.db.run(
+            'has_any_pending_enrollment',
+            async () => {
+                const query = `
+                    SELECT 1
+                    FROM student_enrollments
+                    WHERE student_id = $1
+                      AND status = 'Pending'
+                    LIMIT 1;
+                `;
+                const result = await this.db.query_executor(query, [student_id]);
+                return result.rows.length > 0;
+            }
+        );
+    }
+
+    getActiveRetakeTermIds = (student_id) => {
+        return this.db.run(
+            'get_active_retake_term_ids',
+            async () => {
+                const query = `
+                    SELECT DISTINCT co.term_id
+                    FROM student_enrollments se
+                    JOIN course_offerings co ON co.id = se.course_offering_id
+                    WHERE se.student_id = $1
+                      AND se.is_retake = true
+                      AND se.status IN ('Pending', 'Enrolled')
+                    ORDER BY co.term_id;
+                `;
+                const result = await this.db.query_executor(query, [student_id]);
+                return result.rows.map((row) => Number(row.term_id)).filter((value) => Number.isInteger(value));
             }
         );
     }
@@ -143,13 +198,59 @@ class EnrollmentModel {
                     JOIN course_offerings co ON se.course_offering_id = co.id
                     WHERE se.student_id = $1 
                     AND co.course_id = $2
-                    AND se.status = 'Enrolled'
+                    AND se.status IN ('Enrolled', 'Archived')
                     ORDER BY se.enrollment_timestamp DESC
                     LIMIT 1;
                 `;
                 const params = [student_id, course_id];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
+            }
+        );
+    }
+
+    getCourseAttemptSummary = (student_id, course_id) => {
+        return this.db.run(
+            'get_course_attempt_summary',
+            async () => {
+                const query = `
+                    WITH attempts AS (
+                        SELECT
+                            se.id,
+                            se.grade,
+                            se.enrollment_timestamp,
+                            se.status
+                        FROM student_enrollments se
+                        JOIN course_offerings co ON co.id = se.course_offering_id
+                        WHERE se.student_id = $1
+                          AND co.course_id = $2
+                                            AND se.status IN ('Enrolled', 'Archived')
+                    )
+                    SELECT
+                        EXISTS (
+                            SELECT 1
+                            FROM attempts a
+                            WHERE a.grade IN ('A+', 'A', 'A-', 'B', 'C', 'D')
+                        ) AS has_passed,
+                        (
+                            SELECT a2.grade
+                            FROM attempts a2
+                            ORDER BY a2.enrollment_timestamp DESC, a2.id DESC
+                            LIMIT 1
+                        ) AS latest_grade,
+                        (
+                            SELECT COUNT(*)::INT
+                            FROM attempts
+                        ) AS attempt_count;
+                `;
+
+                const result = await this.db.query_executor(query, [student_id, course_id]);
+                const row = result.rows[0] || {};
+                return {
+                    has_passed: Boolean(row.has_passed),
+                    latest_grade: row.latest_grade || null,
+                    attempt_count: Number(row.attempt_count || 0),
+                };
             }
         );
     }
@@ -299,17 +400,11 @@ class EnrollmentModel {
                     FROM student_enrollments se
                     JOIN course_offerings co ON se.course_offering_id = co.id
                     JOIN terms t ON t.id = co.term_id
-                    JOIN students s ON s.user_id = se.student_id
-                    JOIN terms current_term ON current_term.id = s.current_term
                     WHERE se.student_id = $1
-                      AND se.status = 'Enrolled'
-                      AND (
-                        t.term_number < current_term.term_number
-                        OR ($2::BOOLEAN = TRUE AND t.term_number = current_term.term_number)
-                      )
-                    ORDER BY t.term_number ASC;
+                                            AND se.status IN ('Enrolled', 'Archived')
+                                        ORDER BY t.term_number ASC, t.start_date ASC;
                 `;
-                const params = [student_id, includeCurrentTerm];
+                                const params = [student_id];
                 const result = await this.db.query_executor(query, params);
                 return result.rows;
             }

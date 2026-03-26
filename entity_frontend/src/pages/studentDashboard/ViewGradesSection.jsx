@@ -55,7 +55,7 @@ const ViewGradesSection = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">View Grades</h1>
-            <p className="text-slate-600 mt-1">Your published results across completed terms.</p>
+            <p className="text-slate-600 mt-1">Your published results across completed and archived terms.</p>
           </div>
           <button
             type="button"

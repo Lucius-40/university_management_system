@@ -87,6 +87,40 @@ class StudentModel {
         );
     }
 
+    setCurrentTermByUserId = (user_id, term_id) => {
+        return this.db.run(
+            'set_current_term_by_user_id',
+            async () => {
+                const query = `
+                    UPDATE students
+                    SET current_term = $2
+                    WHERE user_id = $1
+                    RETURNING *;
+                `;
+                const result = await this.db.query_executor(query, [user_id, term_id]);
+                return result.rows[0] || null;
+            }
+        );
+    }
+
+    getDepartmentTermByNumber = (department_id, term_number) => {
+        return this.db.run(
+            'get_department_term_by_number',
+            async () => {
+                const query = `
+                    SELECT id, term_number, department_id, start_date, end_date
+                    FROM terms
+                    WHERE department_id = $1
+                      AND term_number = $2
+                    ORDER BY start_date DESC
+                    LIMIT 1;
+                `;
+                const result = await this.db.query_executor(query, [department_id, term_number]);
+                return result.rows[0] || null;
+            }
+        );
+    }
+
     // Registration helper methods
     getCurrentAdvisor = (student_id) => {
         return this.db.run(
@@ -118,7 +152,7 @@ class StudentModel {
                     JOIN course_offerings co ON se.course_offering_id = co.id
                     JOIN courses c ON co.course_id = c.id
                     WHERE se.student_id = $1 
-                    AND se.status = 'Enrolled'
+                    AND se.status IN ('Enrolled', 'Archived')
                     AND se.grade IS NOT NULL
                     AND se.grade IN ('A+', 'A', 'A-', 'B', 'C', 'D')
                     ORDER BY co.course_id;
