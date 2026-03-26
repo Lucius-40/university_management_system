@@ -86,20 +86,70 @@ class SectionModel {
     }
 
     // Student section assignment methods
-    assignStudentToSection = (student_id, section_name) => {
+    assignStudentToSection = (student_id, section_name, type = 'n') => {
         return this.db.run(
             'assign_student_to_section',
             async () => {
+                const normalizedType = String(type || 'n').toLowerCase();
+                const persistedType = normalizedType === 'r' ? 'r' : 'n';
+
                 const query = `
-                    INSERT INTO student_sections (student_id, section_name)
-                    VALUES ($1, $2)
+                    INSERT INTO student_sections (student_id, section_name, type)
+                    VALUES ($1, $2, $3)
                     ON CONFLICT (student_id)
-                    DO UPDATE SET section_name = EXCLUDED.section_name
+                    DO UPDATE
+                    SET section_name = EXCLUDED.section_name,
+                        type = EXCLUDED.type
                     RETURNING *;
                 `;
-                const params = [student_id, section_name];
-                const result = await this.db.query_executor(query, params);
+                const result = await this.db.query_executor(query, [student_id, section_name, persistedType]);
                 return result.rows[0];
+            }
+        );
+    }
+
+    resolveRegistrationSection = (student_id, term_id) => {
+        return this.db.run(
+            'resolve_registration_section',
+            async () => {
+                const preferredQuery = `
+                    SELECT ss.section_name
+                    FROM student_sections ss
+                    JOIN sections s
+                      ON s.name = ss.section_name
+                     AND s.term_id = $2
+                    WHERE ss.student_id = $1
+                                        ORDER BY
+                                            CASE WHEN ss.type = 'n' THEN 0 ELSE 1 END,
+                                            ss.ctid DESC
+                    LIMIT 1;
+                `;
+                const preferredResult = await this.db.query_executor(preferredQuery, [student_id, term_id]);
+
+                if (preferredResult.rows.length > 0) {
+                    return {
+                        section_name: preferredResult.rows[0].section_name,
+                        source: 'student-section',
+                    };
+                }
+
+                const fallbackQuery = `
+                    SELECT name AS section_name
+                    FROM sections
+                    WHERE term_id = $1
+                    ORDER BY name
+                    LIMIT 1;
+                `;
+                const fallbackResult = await this.db.query_executor(fallbackQuery, [term_id]);
+
+                if (fallbackResult.rows.length > 0) {
+                    return {
+                        section_name: fallbackResult.rows[0].section_name,
+                        source: 'term-fallback',
+                    };
+                }
+
+                return null;
             }
         );
     }
@@ -272,10 +322,13 @@ class SectionModel {
 
                         await client.query(
                             `
-                                INSERT INTO student_sections (student_id, section_name)
-                                VALUES ($1, $2)
+                                INSERT INTO student_sections (student_id, section_name, type)
+                                VALUES ($1, $2, 'n')
                                 ON CONFLICT (student_id)
-                                DO UPDATE SET section_name = EXCLUDED.section_name;
+                                DO UPDATE
+                                SET section_name = EXCLUDED.section_name,
+                                    type = EXCLUDED.type
+                                RETURNING *;
                             `,
                             [studentId, sectionName]
                         );
@@ -320,6 +373,7 @@ class SectionModel {
                 const query = `
                     SELECT * FROM student_sections 
                     WHERE student_id = $1
+                                        ORDER BY CASE WHEN type = 'n' THEN 0 ELSE 1 END, ctid DESC
                     LIMIT 1;
                 `;
                 const params = [student_id];

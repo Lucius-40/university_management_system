@@ -1,5 +1,6 @@
 const TeacherModel = require('../models/teacherModel.js');
 const EnrollmentModel = require('../models/enrollmentModel.js');
+const StudentModel = require('../models/studentModel.js');
 const DB_Connection = require('../database/db.js');
 const bcrypt = require('bcryptjs');
 
@@ -7,7 +8,65 @@ class TeacherController {
     constructor() {
         this.teacherModel = new TeacherModel();
         this.enrollmentModel = new EnrollmentModel();
+        this.studentModel = new StudentModel();
         this.db = DB_Connection.getInstance();
+    }
+
+    maybeTransitionStudentCurrentTermOnRetakeApproval = async (enrollmentId) => {
+        const contextQuery = `
+            SELECT
+                se.id AS enrollment_id,
+                se.student_id,
+                se.is_retake,
+                approved_term.id AS approved_term_id,
+                approved_term.term_number AS approved_term_number,
+                approved_term.department_id AS approved_department_id,
+                current_term.id AS current_term_id,
+                current_term.term_number AS current_term_number
+            FROM student_enrollments se
+            JOIN course_offerings co ON co.id = se.course_offering_id
+            JOIN terms approved_term ON approved_term.id = co.term_id
+            JOIN students s ON s.user_id = se.student_id
+            LEFT JOIN terms current_term ON current_term.id = s.current_term
+            WHERE se.id = $1
+            LIMIT 1;
+        `;
+
+        const contextResult = await this.db.query_executor(contextQuery, [enrollmentId]);
+        const context = contextResult.rows[0];
+
+        if (!context || context.is_retake !== true) {
+            return null;
+        }
+
+        if (Number(context.current_term_number) === Number(context.approved_term_number)) {
+            return null;
+        }
+
+        const mappedTerm = await this.studentModel.getDepartmentTermByNumber(
+            context.approved_department_id,
+            context.approved_term_number
+        );
+
+        if (!mappedTerm) {
+            return null;
+        }
+
+        const updatedStudent = await this.studentModel.setCurrentTermByUserId(
+            context.student_id,
+            mappedTerm.id
+        );
+
+        if (!updatedStudent) {
+            return null;
+        }
+
+        return {
+            student_id: context.student_id,
+            previous_term_id: context.current_term_id,
+            new_term_id: mappedTerm.id,
+            term_number: mappedTerm.term_number,
+        };
     }
 
     getPendingRegistrations = async (req, res) => {
@@ -123,12 +182,18 @@ class TeacherController {
                 return res.status(409).json({ message: 'Enrollment is no longer pending.' });
             }
 
+            let currentTermTransition = null;
+            if (decision === 'approve') {
+                currentTermTransition = await this.maybeTransitionStudentCurrentTermOnRetakeApproval(enrollmentId);
+            }
+
             return res.status(200).json({
                 message:
                     decision === 'approve'
                         ? 'Registration approved successfully.'
                         : 'Registration denied successfully.',
                 enrollment: updated,
+                current_term_transition: currentTermTransition,
             });
         } catch (error) {
             console.error('Decide pending enrollment error:', error);
@@ -167,11 +232,18 @@ class TeacherController {
                 return res.status(409).json({ message: 'No pending registrations found for this student.' });
             }
 
+            let currentTermTransition = null;
+            const approvedRetakeRow = updatedRows.find((row) => row.is_retake === true);
+            if (approvedRetakeRow) {
+                currentTermTransition = await this.maybeTransitionStudentCurrentTermOnRetakeApproval(approvedRetakeRow.id);
+            }
+
             return res.status(200).json({
                 message: 'All pending registrations approved successfully.',
                 student_id: studentId,
                 approved_count: updatedRows.length,
                 enrollments: updatedRows,
+                current_term_transition: currentTermTransition,
             });
         } catch (error) {
             console.error('Approve all pending registrations error:', error);

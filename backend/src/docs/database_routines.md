@@ -4,6 +4,25 @@ This file documents the SQL functions, procedures, and triggers currently presen
 
 ## Functions
 
+### archived_enrollment_history_rules (migration routine)
+Adds the `Archived` enum value to `enrollment_status_enum` when missing, and updates result compilation rules so historical archived enrollments are included in transcript generation.
+
+~~~sql
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'enrollment_status_enum'
+      AND e.enumlabel = 'Archived'
+  ) THEN
+    ALTER TYPE enrollment_status_enum ADD VALUE 'Archived';
+  END IF;
+END
+$$;
+~~~
+
 ### trg_marking_components_limits()
 Trigger function that enforces published marking limits per enrollment (CT <= 4, Attendance <= 1, Final <= 1). It raises exceptions when limits are exceeded.
 
@@ -92,7 +111,7 @@ $$;
 ~~~
 
 ### compile_student_term_result(p_student_id INT, p_term_id INT)
-Computes per-course term results for a student by normalizing published CT, attendance, and final marks. Returns a detailed score breakdown with percentage and grade.
+Computes per-course term results for a student by normalizing published CT, attendance, and final marks. Returns a detailed score breakdown with percentage and grade. Only completed historical rows are included (`Enrolled`, `Archived`), while non-completed rows (`Pending`, `Withdrawn`) are excluded.
 
 ~~~sql
 CREATE OR REPLACE FUNCTION compile_student_term_result(p_student_id INT, p_term_id INT)
@@ -118,6 +137,7 @@ WITH enrolls AS (
   JOIN course_offerings co ON se.course_offering_id = co.id
   WHERE se.student_id = p_student_id
     AND co.term_id = p_term_id
+    AND se.status IN ('Enrolled', 'Archived')
 ),
 published_marks AS (
   SELECT mc.id,

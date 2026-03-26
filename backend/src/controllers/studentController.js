@@ -488,11 +488,12 @@ class StudentController {
         try {
             const student_id = parseInt(req.params.user_id);
             const { term_number, section_name, course_offering_ids } = req.body;
+            const normalizedSectionName = typeof section_name === 'string' ? section_name.trim() : '';
 
             // Validate input
-            if (!term_number || !section_name || !course_offering_ids || !Array.isArray(course_offering_ids) || course_offering_ids.length === 0) {
+            if (!term_number || !course_offering_ids || !Array.isArray(course_offering_ids) || course_offering_ids.length === 0) {
                 return res.status(400).json({ 
-                    error: "Missing required fields: term_number, section_name, and course_offering_ids array" 
+                    error: "Missing required fields: term_number and course_offering_ids array" 
                 });
             }
 
@@ -529,6 +530,14 @@ class StudentController {
                 return res.status(400).json({ error: `Student status is ${student.status}. Only Active students can register.` });
             }
 
+            const hasPendingEnrollment = await this.enrollmentModel.hasAnyPendingEnrollment(student_id);
+            if (hasPendingEnrollment) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'You already have pending registration requests. Please wait for advisor decision before registering again.'
+                });
+            }
+
             // 3. Get student's department
             const studentDept = await this.studentModel.getStudentDepartment(student_id);
             if (!studentDept || !studentDept.department_id) {
@@ -554,16 +563,7 @@ class StudentController {
 
             const term = termResult.rows[0];
 
-            // 5. Verify section exists for this term
-            const sectionExists = await this.sectionModel.checkSectionExists(term.id, section_name);
-            if (!sectionExists) {
-                await client.query('ROLLBACK');
-                return res.status(400).json({ 
-                    error: `Section ${section_name} does not exist for term ${term_number}` 
-                });
-            }
-
-            // 6. Check required blocking dues for the target term
+            // 5. Check required blocking dues for the target term
             const blockingDues = await this.studentModel.getBlockingDuesForRegistration(student_id, term.id);
             if (blockingDues.length > 0) {
                 await client.query('ROLLBACK');
@@ -573,19 +573,20 @@ class StudentController {
                 });
             }
 
-            // 7. Get student's completed courses (for prerequisite checking)
+            // 6. Get student's completed courses (for prerequisite checking)
             const completedCourses = await this.studentModel.getCompletedCourses(student_id);
             const completedCourseIds = completedCourses.map(c => c.course_id);
 
-            // 8. Get current term credits already enrolled
+            // 7. Get current term credits already enrolled
             const currentCredits = await this.enrollmentModel.getTotalCreditsForTerm(student_id, term.id);
 
-            // 9. Process each course offering
+            // 8. Process each course offering
             const enrollments = [];
             const warnings = [];
             let totalNewCredits = 0;
             let selectedOptionalCount = 0;
             let selectedOptionalCredits = 0;
+            let hasRetakeSelection = false;
 
             for (const offering_id of course_offering_ids) {
                 // Get course offering details
@@ -648,15 +649,17 @@ class StudentController {
                 }
 
                 // Check if this is a retake and validate
-                const previousEnrollment = await this.enrollmentModel.checkPreviousEnrollment(student_id, offering.course_id);
-                const isRetake = !!previousEnrollment;
+                const attemptSummary = await this.enrollmentModel.getCourseAttemptSummary(student_id, offering.course_id);
+                const isRetake = attemptSummary.attempt_count > 0;
+                if (isRetake) {
+                    hasRetakeSelection = true;
+                }
                 
-                // Block enrollment if student already passed this course (grades D or better)
-                const passingGrades = ['A+', 'A', 'A-', 'B', 'C', 'D'];
-                if (previousEnrollment && passingGrades.includes(previousEnrollment.grade)) {
+                // Block enrollment if student has ever passed this course in any term.
+                if (attemptSummary.has_passed) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({ 
-                        error: `Cannot re-enroll in ${offering.course_code}. You already passed with grade ${previousEnrollment.grade}` 
+                        error: `Cannot re-enroll in ${offering.course_code}. You already passed this course in a previous attempt.`
                     });
                 }
 
@@ -685,7 +688,7 @@ class StudentController {
                 });
             }
 
-            // 10. Check credit limit from term
+            // 9. Check credit limit from term
             const termCreditLimit = Number(term.max_credit || 23);
             const totalCredits = parseFloat(currentCredits) + totalNewCredits;
             if (totalCredits > termCreditLimit) {
@@ -695,17 +698,61 @@ class StudentController {
                 });
             }
 
-            // 12. Assign student to section
-            const sectionAssignment = await this.sectionModel.assignStudentToSection(student_id, section_name);
+            if (hasRetakeSelection) {
+                const activeRetakeTermIds = await this.enrollmentModel.getActiveRetakeTermIds(student_id);
+                const hasDifferentActiveRetakeTerm = activeRetakeTermIds.some((activeTermId) => activeTermId !== Number(term.id));
 
-            // 13. Create all enrollments
+                if (hasDifferentActiveRetakeTerm) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        error: 'Retake registration is allowed in only one active term at a time.'
+                    });
+                }
+            }
+
+            // 10. Resolve section assignment mode.
+            let resolvedSectionName = null;
+            let sectionAssignment = null;
+
+            if (hasRetakeSelection) {
+                if (!normalizedSectionName) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        error: 'Section selection is required when registering retake courses.'
+                    });
+                }
+
+                const sectionExists = await this.sectionModel.checkSectionExists(term.id, normalizedSectionName);
+                if (!sectionExists) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        error: `Section ${normalizedSectionName} does not exist for term ${term_number}`
+                    });
+                }
+
+                resolvedSectionName = normalizedSectionName;
+                sectionAssignment = await this.sectionModel.assignStudentToSection(student_id, resolvedSectionName, 'r');
+            } else {
+                const autoSection = await this.sectionModel.resolveRegistrationSection(student_id, term.id);
+                if (!autoSection || !autoSection.section_name) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        error: `No section found for term ${term_number}. Please contact your department office.`
+                    });
+                }
+
+                resolvedSectionName = autoSection.section_name;
+                sectionAssignment = await this.sectionModel.assignStudentToSection(student_id, resolvedSectionName, 'n');
+            }
+
+            // 11. Create all enrollments
             const createdEnrollments = [];
             for (const enrollment of enrollments) {
                 const created = await this.enrollmentModel.createEnrollment(enrollment);
                 createdEnrollments.push(created);
             }
 
-            // 14. Get advisor info
+            // 12. Get advisor info
             const advisor = await this.studentModel.getCurrentAdvisor(student_id);
 
             await client.query('COMMIT');
@@ -714,6 +761,8 @@ class StudentController {
                 message: "Registration successful. Enrollments pending advisor approval.",
                 enrollments: createdEnrollments,
                 section_assignment: sectionAssignment,
+                section_mode: hasRetakeSelection ? 'retake' : 'auto',
+                section_name: resolvedSectionName,
                 advisor: advisor ? {
                     id: advisor.teacher_id,
                     name: advisor.advisor_name,
@@ -780,15 +829,15 @@ class StudentController {
             const completedCourses = await this.studentModel.getCompletedCourses(student_id);
             const completedCourseIds = completedCourses.map(c => c.course_id);
 
-            // Get current enrollments
-            const currentEnrollments = await this.enrollmentModel.getEnrollmentsByStudent(student_id, term.id);
+            // Get active enrollments in this term (Pending/Enrolled only)
+            const currentEnrollments = await this.enrollmentModel.getActiveEnrollmentsByStudentAndTerm(student_id, term.id);
             const enrolledOfferingIds = currentEnrollments.map(e => e.course_offering_id);
 
             // Enrich offerings with additional info
             const enrichedOfferings = await Promise.all(offerings.map(async (offering) => {
                 const prerequisites = await this.courseModel.getCoursePrerequisites(offering.course_id);
                 const enrollmentCount = await this.courseModel.getCourseOfferingEnrollmentCount(offering.id);
-                const previousEnrollment = await this.enrollmentModel.checkPreviousEnrollment(student_id, offering.course_id);
+                const attemptSummary = await this.enrollmentModel.getCourseAttemptSummary(student_id, offering.course_id);
                 
                 const missingPrereqs = prerequisites.filter(prereq => 
                     !completedCourseIds.includes(prereq.prereq_id)
@@ -796,9 +845,8 @@ class StudentController {
 
                 const isAlreadyEnrolled = enrolledOfferingIds.includes(offering.id);
 
-                // Check if student passed this course before (grades D or better)
-                const passingGrades = ['A+', 'A', 'A-', 'B', 'C', 'D'];
-                const hasPassed = previousEnrollment && passingGrades.includes(previousEnrollment.grade);
+                // Check if student has ever passed this course before (grades D or better).
+                const hasPassed = attemptSummary.has_passed;
                 
                 // Student can enroll if:
                 // - Not already enrolled in this term
@@ -813,8 +861,8 @@ class StudentController {
                     prerequisites,
                     missing_prerequisites: missingPrereqs,
                     can_enroll: canEnroll,
-                    is_retake: !!previousEnrollment,
-                    previous_grade: previousEnrollment?.grade || null,
+                    is_retake: attemptSummary.attempt_count > 0,
+                    previous_grade: attemptSummary.latest_grade,
                     already_enrolled: isAlreadyEnrolled,
                     enrollment_count: enrollmentCount,
                     capacity_available: offering.max_capacity ? offering.max_capacity - enrollmentCount : null

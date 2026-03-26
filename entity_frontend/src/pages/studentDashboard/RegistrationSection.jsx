@@ -60,6 +60,12 @@ const RegistrationSection = () => {
     }, 0);
   }, [courses, selectedCourseIds]);
 
+  const hasRetakeSelection = useMemo(() => {
+    if (selectedCourseIds.length === 0) return false;
+    const selectedSet = new Set(selectedCourseIds);
+    return courses.some((course) => selectedSet.has(course.id) && Boolean(course.is_retake));
+  }, [courses, selectedCourseIds]);
+
   const fetchCourses = async (resolvedTermNumber) => {
     if (!userId) return;
 
@@ -179,7 +185,7 @@ const RegistrationSection = () => {
       return;
     }
 
-    if (!selectedSection) {
+    if (hasRetakeSelection && !selectedSection) {
       setErrorMessage('Please select a section.');
       return;
     }
@@ -191,11 +197,16 @@ const RegistrationSection = () => {
 
     setIsSubmitting(true);
     try {
-      const response = await api.post(`/students/${encodeURIComponent(userId)}/register`, {
+      const payload = {
         term_number: parseNumber(termNumber, DEFAULT_TERM_NUMBER),
-        section_name: selectedSection,
         course_offering_ids: selectedCourseIds,
-      });
+      };
+
+      if (hasRetakeSelection) {
+        payload.section_name = selectedSection;
+      }
+
+      const response = await api.post(`/students/${encodeURIComponent(userId)}/register`, payload);
 
       setSuccessData(response.data);
       setSelectedCourseIds([]);
@@ -326,24 +337,31 @@ const RegistrationSection = () => {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="text-sm space-y-1 max-w-xs">
-              <span className="text-slate-700">Section</span>
-              <select
-                value={selectedSection}
-                onChange={(event) => setSelectedSection(event.target.value)}
-                className="w-full p-2 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {!selectedSection ? <option value="">Select section</option> : null}
-                {(eligibility.sections || []).map((section) => {
-                  const sectionName = section?.name || '';
-                  return (
-                    <option key={sectionName} value={sectionName}>
-                      {sectionName}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
+            {hasRetakeSelection ? (
+              <label className="text-sm space-y-1 max-w-xs">
+                <span className="text-slate-700">Section (required for retakes)</span>
+                <select
+                  value={selectedSection}
+                  onChange={(event) => setSelectedSection(event.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {!selectedSection ? <option value="">Select section</option> : null}
+                  {(eligibility.sections || []).map((section) => {
+                    const sectionName = section?.name || '';
+                    return (
+                      <option key={sectionName} value={sectionName}>
+                        {sectionName}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            ) : (
+              <div className="text-sm text-slate-700">
+                <p className="font-medium">Section</p>
+                <p>Auto-selected from your assigned section for non-retake registration.</p>
+              </div>
+            )}
 
             <div className="text-sm text-slate-700">
               <p className="font-medium">Advisor</p>
@@ -433,7 +451,7 @@ const RegistrationSection = () => {
             <button
               type="button"
               onClick={handleSubmitRegistration}
-              disabled={isSubmitting || selectedCourseIds.length === 0 || !selectedSection}
+              disabled={isSubmitting || selectedCourseIds.length === 0 || (hasRetakeSelection && !selectedSection)}
               className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {isSubmitting ? 'Submitting...' : 'Submit for Advisor Approval'}
