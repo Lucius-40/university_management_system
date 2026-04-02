@@ -143,6 +143,39 @@ class MarkingModel {
         });
     }
 
+    getPublishedComponentsByEnrollmentIds = (enrollmentIds = []) => {
+        return this.db.run('get_published_components_by_enrollment_ids', async () => {
+            if (!Array.isArray(enrollmentIds) || enrollmentIds.length === 0) {
+                return [];
+            }
+
+            const normalizedIds = enrollmentIds
+                .map((id) => Number(id))
+                .filter((id) => Number.isInteger(id) && id > 0);
+
+            if (normalizedIds.length === 0) {
+                return [];
+            }
+
+            const query = `
+                SELECT
+                    mc.id,
+                    mc.enrollment_id,
+                    mc.type,
+                    mc.total_marks,
+                    mc.marks_obtained,
+                    mc.status
+                FROM marking_components mc
+                WHERE mc.enrollment_id = ANY($1::INT[])
+                  AND mc.status = 'Published'
+                ORDER BY mc.enrollment_id ASC, mc.id ASC;
+            `;
+
+            const result = await this.db.query_executor(query, [normalizedIds]);
+            return result.rows;
+        });
+    }
+
     getTeacherMarkingWorkspace = ({ teacherId, courseOfferingId, sectionName }) => {
         return this.db.run('get_teacher_marking_workspace', async () => {
             const contextQuery = `

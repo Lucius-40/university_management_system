@@ -115,6 +115,98 @@ class DepartmentModel {
         );
     };
 
+    isTeacherActiveDepartmentHead = (departmentId, teacherId) => {
+        return this.db.run(
+            "is_teacher_active_department_head",
+            async () => {
+                const query = `
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM department_heads dh
+                        WHERE dh.department_id = $1
+                          AND dh.teacher_id = $2
+                          AND dh.end_date IS NULL
+                    ) AS is_active;
+                `;
+                const result = await this.db.query_executor(query, [departmentId, teacherId]);
+                return Boolean(result.rows[0]?.is_active);
+            }
+        );
+    };
+
+    getDepartmentOverviewStats = (departmentId) => {
+        return this.db.run(
+            "get_department_overview_stats",
+            async () => {
+                const query = `
+                    SELECT
+                        d.id,
+                        d.code,
+                        d.name,
+                        stats.teacher_count,
+                        stats.student_count,
+                        stats.course_count,
+                        stats.term_count,
+                        stats.active_offering_count,
+                        stats.active_section_count,
+                        head.teacher_id AS current_head_teacher_id,
+                        head.name AS current_head_name,
+                        head.email AS current_head_email,
+                        head.appointment AS current_head_appointment,
+                        head.start_date AS current_head_start_date
+                    FROM departments d
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            (SELECT COUNT(*)::int FROM teachers t WHERE t.department_id = d.id) AS teacher_count,
+                            (
+                                SELECT COUNT(*)::int
+                                FROM students s
+                                JOIN terms tr ON tr.id = s.current_term
+                                WHERE tr.department_id = d.id
+                            ) AS student_count,
+                            (SELECT COUNT(*)::int FROM courses c WHERE c.department_id = d.id) AS course_count,
+                            (SELECT COUNT(*)::int FROM terms tr WHERE tr.department_id = d.id) AS term_count,
+                            (
+                                SELECT COUNT(*)::int
+                                FROM course_offerings co
+                                JOIN terms tr ON tr.id = co.term_id
+                                WHERE tr.department_id = d.id
+                                  AND COALESCE(co.is_active, TRUE) = TRUE
+                            ) AS active_offering_count,
+                            (
+                                SELECT COUNT(*)::int
+                                FROM teaches te
+                                JOIN course_offerings co ON co.id = te.course_offering_id
+                                JOIN terms tr ON tr.id = co.term_id
+                                WHERE tr.department_id = d.id
+                                  AND COALESCE(co.is_active, TRUE) = TRUE
+                            ) AS active_section_count
+                    ) stats ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            dh.teacher_id,
+                            u.name,
+                            COALESCE(t.official_mail, u.email) AS email,
+                            t.appointment,
+                            dh.start_date
+                        FROM department_heads dh
+                        JOIN teachers t ON t.user_id = dh.teacher_id
+                        JOIN users u ON u.id = t.user_id
+                        WHERE dh.department_id = d.id
+                          AND dh.end_date IS NULL
+                        ORDER BY dh.start_date DESC, dh.id DESC
+                        LIMIT 1
+                    ) head ON TRUE
+                    WHERE d.id = $1
+                    LIMIT 1;
+                `;
+
+                const result = await this.db.query_executor(query, [departmentId]);
+                return result.rows[0] || null;
+            }
+        );
+    };
+
     getDepartmentHeadHistory = (departmentId) => {
         return this.db.run(
             "get_department_head_history",

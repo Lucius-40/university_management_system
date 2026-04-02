@@ -1,0 +1,2 @@
+-- Session-end kill switch migration placeholder.
+-- Active schema alignment for current_state session-end columns is enforced in systemStateModel.

@@ -1,6 +1,8 @@
 const TeacherModel = require('../models/teacherModel.js');
 const EnrollmentModel = require('../models/enrollmentModel.js');
 const StudentModel = require('../models/studentModel.js');
+const MarkingModel = require('../models/markingModel.js');
+const DepartmentModel = require('../models/departmentModel.js');
 const DB_Connection = require('../database/db.js');
 const bcrypt = require('bcryptjs');
 
@@ -9,7 +11,216 @@ class TeacherController {
         this.teacherModel = new TeacherModel();
         this.enrollmentModel = new EnrollmentModel();
         this.studentModel = new StudentModel();
+        this.markingModel = new MarkingModel();
+        this.departmentModel = new DepartmentModel();
         this.db = DB_Connection.getInstance();
+    }
+
+    requireTeacherRole = (req, res) => {
+        if (String(req.user?.role || '').toLowerCase() !== 'teacher') {
+            res.status(403).json({ message: 'Only teachers can access this resource.' });
+            return false;
+        }
+        return true;
+    }
+
+    requireSystemRole = (req, res) => {
+        if (String(req.user?.role || '').toLowerCase() !== 'system') {
+            res.status(403).json({ message: 'Only system admin can access this resource.' });
+            return false;
+        }
+        return true;
+    }
+
+    getMyResourceOverview = async (req, res) => {
+        try {
+            if (!this.requireTeacherRole(req, res)) {
+                return;
+            }
+
+            const teacherId = Number(req.user?.id);
+            if (!Number.isInteger(teacherId) || teacherId <= 0) {
+                return res.status(400).json({ error: 'Invalid teacher identity.' });
+            }
+
+            const teacherContext = await this.teacherModel.getTeacherContextByUserId(teacherId);
+            if (!teacherContext) {
+                return res.status(404).json({ error: 'Teacher profile not found.' });
+            }
+
+            const [adviseeRows, teachingContexts] = await Promise.all([
+                this.studentModel.getCurrentAdviseesByTeacherId(teacherId),
+                this.markingModel.getTeacherMarkingContexts(teacherId),
+            ]);
+
+            const advisees = (Array.isArray(adviseeRows) ? adviseeRows : []).map((row) => ({
+                student_id: Number(row.student_id),
+                student_name: row.student_name,
+                student_email: row.student_email,
+                roll_number: row.roll_number,
+                student_status: row.student_status,
+                advisor_since: row.advisor_since,
+                current_term: {
+                    id: row.current_term_id ? Number(row.current_term_id) : null,
+                    term_number: row.current_term_number ? Number(row.current_term_number) : null,
+                    department_id: row.department_id ? Number(row.department_id) : null,
+                    department_code: row.department_code || null,
+                    department_name: row.department_name || null,
+                },
+                pending_enrollments_count: Number(row.pending_enrollments_count || 0),
+                active_or_archived_enrollments_count: Number(row.active_or_archived_enrollments_count || 0),
+            }));
+
+            const rawTeachingContexts = Array.isArray(teachingContexts) ? teachingContexts : [];
+
+            const sectionRows = rawTeachingContexts.map((row) => ({
+                course_offering_id: Number(row.course_offering_id),
+                section_name: row.section_name,
+                term_id: Number(row.term_id),
+                term_number: Number(row.term_number),
+                department_id: row.department_id ? Number(row.department_id) : null,
+                department_code: row.department_code || null,
+                department_name: row.department_name || null,
+                course: {
+                    id: row.course_id ? Number(row.course_id) : null,
+                    code: row.course_code,
+                    name: row.course_name,
+                    credit_hours: row.credit_hours != null ? Number(row.credit_hours) : null,
+                },
+            }));
+
+            const offeringMap = new Map();
+            const courseMap = new Map();
+
+            for (const row of sectionRows) {
+                const offeringId = Number(row.course_offering_id);
+                if (!offeringMap.has(offeringId)) {
+                    offeringMap.set(offeringId, {
+                        course_offering_id: offeringId,
+                        term_id: row.term_id,
+                        term_number: row.term_number,
+                        department_id: row.department_id,
+                        department_code: row.department_code,
+                        department_name: row.department_name,
+                        course: row.course,
+                        sections: [],
+                    });
+                }
+
+                const offering = offeringMap.get(offeringId);
+                if (!offering.sections.includes(row.section_name)) {
+                    offering.sections.push(row.section_name);
+                }
+
+                const courseId = Number(row.course?.id);
+                if (!courseMap.has(courseId)) {
+                    courseMap.set(courseId, {
+                        course_id: courseId,
+                        course_code: row.course?.code || null,
+                        course_name: row.course?.name || null,
+                        credit_hours: row.course?.credit_hours ?? null,
+                        section_count: 0,
+                        offering_count: 0,
+                        terms: new Set(),
+                    });
+                }
+
+                const courseItem = courseMap.get(courseId);
+                courseItem.section_count += 1;
+                courseItem.terms.add(row.term_number);
+            }
+
+            for (const offering of offeringMap.values()) {
+                const courseId = Number(offering.course?.id);
+                const courseItem = courseMap.get(courseId);
+                if (courseItem) {
+                    courseItem.offering_count += 1;
+                }
+            }
+
+            const offerings = Array.from(offeringMap.values()).map((offering) => ({
+                ...offering,
+                section_count: offering.sections.length,
+            }));
+
+            const coursesOffered = Array.from(courseMap.values()).map((course) => ({
+                course_id: course.course_id,
+                course_code: course.course_code,
+                course_name: course.course_name,
+                credit_hours: course.credit_hours,
+                section_count: course.section_count,
+                offering_count: course.offering_count,
+                terms: Array.from(course.terms).sort((a, b) => a - b),
+            }));
+
+            const totalPendingFromAdvisees = advisees.reduce(
+                (sum, row) => sum + Number(row.pending_enrollments_count || 0),
+                0
+            );
+
+            const ownStats = {
+                advisee_count: advisees.length,
+                advisees_with_pending_count: advisees.filter(
+                    (row) => Number(row.pending_enrollments_count || 0) > 0
+                ).length,
+                pending_enrollments_total: totalPendingFromAdvisees,
+                active_course_offering_count: offerings.length,
+                courses_offered_count: coursesOffered.length,
+                sections_teaching_count: sectionRows.length,
+            };
+
+            const departmentId = teacherContext.department_id ? Number(teacherContext.department_id) : null;
+            let departmentHead = {
+                is_active_department_head: Boolean(teacherContext.is_active_department_head),
+                overview: null,
+                faculty: [],
+            };
+
+            if (departmentId && departmentHead.is_active_department_head) {
+                const [overview, faculty] = await Promise.all([
+                    this.departmentModel.getDepartmentOverviewStats(departmentId),
+                    this.teacherModel.getDepartmentFacultySnapshot(departmentId),
+                ]);
+
+                departmentHead = {
+                    is_active_department_head: true,
+                    overview,
+                    faculty: faculty || [],
+                };
+            }
+
+            return res.status(200).json({
+                teacher: {
+                    user_id: Number(teacherContext.user_id),
+                    name: teacherContext.name,
+                    email: teacherContext.email,
+                    mobile_number: teacherContext.mobile_number || null,
+                    official_mail: teacherContext.official_mail || null,
+                    appointment: teacherContext.appointment || null,
+                    department_id: departmentId,
+                    department_code: teacherContext.department_code || null,
+                    department_name: teacherContext.department_name || null,
+                    is_active_department_head: Boolean(teacherContext.is_active_department_head),
+                    department_head_start_date: teacherContext.department_head_start_date || null,
+                },
+                own_stats: ownStats,
+                advisor: {
+                    is_advisor: advisees.length > 0,
+                    total_advisees: advisees.length,
+                    total_pending_enrollments: totalPendingFromAdvisees,
+                    advisees,
+                },
+                teaching: {
+                    courses_offered: coursesOffered,
+                    offerings,
+                    sections: sectionRows,
+                },
+                department_head: departmentHead,
+            });
+        } catch (error) {
+            console.error('Get my teacher resource overview error:', error);
+            return res.status(500).json({ error: error.message });
+        }
     }
 
     maybeTransitionStudentCurrentTermOnRetakeApproval = async (enrollmentId) => {
@@ -457,6 +668,79 @@ class TeacherController {
         } catch (error) {
             console.error("Get All Teachers error:", error);
             res.status(500).json({ error: error.message });
+        }
+    }
+
+    searchTeachers = async (req, res) => {
+        try {
+            if (!this.requireSystemRole(req, res)) {
+                return;
+            }
+
+            const parseOptionalPositiveInt = (value) => {
+                if (value === undefined || value === null || value === '') {
+                    return null;
+                }
+                const parsed = Number(value);
+                if (!Number.isInteger(parsed) || parsed <= 0) {
+                    return NaN;
+                }
+                return parsed;
+            };
+
+            const departmentId = parseOptionalPositiveInt(req.query.department_id);
+            if (Number.isNaN(departmentId)) {
+                return res.status(400).json({ error: 'department_id must be a positive integer.' });
+            }
+
+            const offeringId = parseOptionalPositiveInt(req.query.offering_id);
+            if (Number.isNaN(offeringId)) {
+                return res.status(400).json({ error: 'offering_id must be a positive integer.' });
+            }
+
+            const limitRaw = Number(req.query.limit);
+            const offsetRaw = Number(req.query.offset);
+
+            const limit = Number.isInteger(limitRaw)
+                ? Math.min(Math.max(limitRaw, 1), 100)
+                : 40;
+            const offset = Number.isInteger(offsetRaw)
+                ? Math.max(offsetRaw, 0)
+                : 0;
+
+            const search = String(req.query.search || '').trim();
+
+            const result = await this.teacherModel.searchTeachers({
+                department_id: departmentId,
+                offering_id: offeringId,
+                search,
+                limit,
+                offset,
+            });
+
+            const teachers = (result.rows || []).map((row) => ({
+                user_id: Number(row.user_id),
+                name: row.name,
+                email: row.email,
+                official_mail: row.official_mail,
+                appointment: row.appointment,
+                department_id: row.department_id != null ? Number(row.department_id) : null,
+                department_code: row.department_code || null,
+                department_name: row.department_name || null,
+                is_assigned_to_offering: Boolean(row.is_assigned_to_offering),
+                active_section_count: Number(row.active_section_count || 0),
+            }));
+
+            return res.status(200).json({
+                total: Number(result.total || 0),
+                limit,
+                offset,
+                has_more: offset + teachers.length < Number(result.total || 0),
+                teachers,
+            });
+        } catch (error) {
+            console.error('Search teachers error:', error);
+            return res.status(500).json({ error: error.message });
         }
     }
 

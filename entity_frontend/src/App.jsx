@@ -18,7 +18,7 @@ const DashboardRedirect = () => {
   }
 
   if (normalizedRole === 'teacher') {
-    return <Navigate to="/teacher/dashboard/pending-registrations" replace />;
+    return <Navigate to="/teacher/dashboard/overview" replace />;
   }
 
   return <Navigate to="/login" replace />;

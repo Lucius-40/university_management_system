@@ -55,15 +55,85 @@ class SystemStateController {
                 term_end,
                 updated_by: req.user.id,
             });
+            const syncedTerms = await this.systemStateModel.syncAllTermDateWindow(term_start, term_end);
 
             res.status(200).json({
                 message: "System state updated successfully.",
                 insertedTerms,
+                syncedTerms,
                 state: updatedState,
             });
         } catch (error) {
             console.error("Update system state error:", error);
             res.status(500).json({ error: error.message });
+        }
+    };
+
+    endCurrentSession = async (req, res) => {
+        try {
+            if (req.user?.role !== 'system') {
+                return res.status(403).json({ error: 'Only system admin can end current session.' });
+            }
+
+            if (req.body?.confirm !== true) {
+                return res.status(400).json({
+                    error: 'confirm=true is required to execute this operation.',
+                });
+            }
+
+            const result = await this.systemStateModel.endCurrentSessionAndPromote({
+                triggeredByUserId: Number(req.user?.id) || null,
+                reason: req.body?.reason || null,
+            });
+
+            return res.status(200).json(result);
+        } catch (error) {
+            console.error('End current session error:', error);
+
+            if (Number(error.statusCode) >= 400) {
+                return res.status(Number(error.statusCode)).json({
+                    error: error.message,
+                });
+            }
+
+            return res.status(500).json({ error: error.message });
+        }
+    };
+
+    previewEndCurrentSession = async (req, res) => {
+        try {
+            if (req.user?.role !== 'system') {
+                return res.status(403).json({ error: 'Only system admin can preview session end impact.' });
+            }
+
+            const preview = await this.systemStateModel.previewEndCurrentSessionImpact();
+            return res.status(200).json(preview);
+        } catch (error) {
+            console.error('Preview end current session error:', error);
+
+            if (Number(error.statusCode) >= 400 && Number(error.statusCode) < 500) {
+                return res.status(200).json({
+                    message: 'Session-end impact preview generated.',
+                    can_execute: false,
+                    blocking_reason: error.message,
+                    session_window: null,
+                    summary: {
+                        terms_processed: 0,
+                        students_considered: 0,
+                        students_eligible_for_next_term: 0,
+                        students_will_graduate: 0,
+                        students_not_eligible: 0,
+                        pending_to_auto_approve: 0,
+                        enrollments_to_archive: 0,
+                        enrollments_missing_grade_to_f: 0,
+                    },
+                    terms_processed: [],
+                    eligible_next_term_targets: [],
+                    ineligible_reason_breakdown: [],
+                });
+            }
+
+            return res.status(500).json({ error: error.message });
         }
     };
 }

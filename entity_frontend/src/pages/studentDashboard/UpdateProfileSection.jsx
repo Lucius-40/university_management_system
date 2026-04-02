@@ -117,10 +117,22 @@ const UpdateProfileSection = () => {
   const userId = sessionUser?.id;
 
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [profileImageUrl, setProfileImageUrl] = useState("");
+  const [selectedImageFile, setSelectedImageFile] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+    };
+  }, [imagePreviewUrl]);
 
   const loadProfile = useCallback(async () => {
     setIsLoading(true);
@@ -128,8 +140,17 @@ const UpdateProfileSection = () => {
 
     try {
       const response = await api.get("/users/profile");
-      const nextForm = mapSourceToForm(response.data?.user || response.data?.profile);
+      const source = response.data?.user || response.data?.profile;
+      const nextForm = mapSourceToForm(source);
       setForm(nextForm);
+      setProfileImageUrl(source?.profile_image_url || "");
+      setSelectedImageFile(null);
+      setImagePreviewUrl((prev) => {
+        if (prev) {
+          URL.revokeObjectURL(prev);
+        }
+        return "";
+      });
     } catch (error) {
       const errorText = error.response?.data?.message || error.response?.data?.error || "Failed to load profile.";
       setMessage({ type: "error", text: errorText });
@@ -137,6 +158,98 @@ const UpdateProfileSection = () => {
       setIsLoading(false);
     }
   }, []);
+
+  const handleImageSelection = (event) => {
+    const file = event.target.files?.[0] || null;
+    if (!file) {
+      return;
+    }
+
+    if (!String(file.type || "").startsWith("image/")) {
+      setMessage({ type: "error", text: "Please choose a valid image file." });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: "error", text: "Image size must be 5MB or less." });
+      return;
+    }
+
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+
+    const preview = URL.createObjectURL(file);
+    setSelectedImageFile(file);
+    setImagePreviewUrl(preview);
+    setMessage({ type: "", text: "" });
+  };
+
+  const handleUploadProfileImage = async () => {
+    if (!userId) {
+      setMessage({ type: "error", text: "No user id found in session. Please login again." });
+      return;
+    }
+
+    if (!selectedImageFile) {
+      setMessage({ type: "error", text: "Select an image first." });
+      return;
+    }
+
+    setIsUpdatingImage(true);
+    setMessage({ type: "", text: "" });
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedImageFile);
+
+      const response = await api.post(`/users/${encodeURIComponent(userId)}/profile-image`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const updatedUser = response.data?.user || {};
+      setProfileImageUrl(updatedUser.profile_image_url || "");
+      setSelectedImageFile(null);
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+      setImagePreviewUrl("");
+      setMessage({ type: "success", text: response.data?.message || "Profile image updated successfully." });
+    } catch (error) {
+      const errorText = error.response?.data?.message || error.response?.data?.error || "Failed to upload profile image.";
+      setMessage({ type: "error", text: errorText });
+    } finally {
+      setIsUpdatingImage(false);
+    }
+  };
+
+  const handleRemoveProfileImage = async () => {
+    if (!userId) {
+      setMessage({ type: "error", text: "No user id found in session. Please login again." });
+      return;
+    }
+
+    setIsUpdatingImage(true);
+    setMessage({ type: "", text: "" });
+
+    try {
+      const response = await api.delete(`/users/${encodeURIComponent(userId)}/profile-image`);
+      setProfileImageUrl("");
+      setSelectedImageFile(null);
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+      setImagePreviewUrl("");
+      setMessage({ type: "success", text: response.data?.message || "Profile image removed successfully." });
+    } catch (error) {
+      const errorText = error.response?.data?.message || error.response?.data?.error || "Failed to remove profile image.";
+      setMessage({ type: "error", text: errorText });
+    } finally {
+      setIsUpdatingImage(false);
+    }
+  };
 
   useEffect(() => {
     if (!userId) {
@@ -180,6 +293,7 @@ const UpdateProfileSection = () => {
       const updatedUser = response.data?.user || {};
 
       setForm(mapSourceToForm(updatedUser));
+      setProfileImageUrl(updatedUser.profile_image_url || profileImageUrl || "");
       setMessage({ type: "success", text: response.data?.message || "Profile updated successfully." });
 
       if (token && typeof login === "function") {
@@ -231,6 +345,52 @@ const UpdateProfileSection = () => {
       ) : null}
 
       <form onSubmit={handleSubmit} className="rounded-lg border bg-white p-4 grid gap-4 md:grid-cols-2">
+        <div className="md:col-span-2 rounded border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-medium text-slate-800 mb-3">Profile Image</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="h-20 w-20 rounded-full overflow-hidden border border-slate-300 bg-white">
+              {imagePreviewUrl || profileImageUrl ? (
+                <img
+                  src={imagePreviewUrl || profileImageUrl}
+                  alt="Profile"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center text-xs text-slate-500">
+                  No Image
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 min-w-60 space-y-2">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={handleImageSelection}
+                className="w-full text-sm"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleUploadProfileImage}
+                  disabled={!selectedImageFile || isUpdatingImage}
+                  className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {isUpdatingImage ? "Uploading..." : "Upload Image"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRemoveProfileImage}
+                  disabled={(!profileImageUrl && !imagePreviewUrl) || isUpdatingImage}
+                  className="px-3 py-1.5 rounded border border-slate-300 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                >
+                  Remove Image
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {FIELD_CONFIG.map((field) => {
           const fieldError = errors[field.name];
           const commonClass = `w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${

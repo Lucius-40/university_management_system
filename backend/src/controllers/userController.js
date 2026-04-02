@@ -1,5 +1,6 @@
 const UserModel = require('../models/userModel.js');
 const InitialCredentialsModel = require('../models/initialCredentialsModel.js');
+const cloudinary = require('../utils/cloudinary.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -7,6 +8,29 @@ class UserController {
     constructor() {
         this.userModel = new UserModel();
         this.initialCredentialsModel = new InitialCredentialsModel();
+    }
+
+    isSystemOrAdminRole = (role) => {
+        const normalizedRole = String(role || '').toLowerCase();
+        return normalizedRole === 'system' || normalizedRole === 'admin';
+    }
+
+    canManageUser = (requester, requestedId) => {
+        if (!requester || !Number.isInteger(Number(requestedId))) {
+            return false;
+        }
+
+        const requesterId = Number(requester.id);
+        const targetId = Number(requestedId);
+        return this.isSystemOrAdminRole(requester.role) || requesterId === targetId;
+    }
+
+    isCloudinaryConfigured = () => {
+        return (
+            Boolean(process.env.CLOUDINARY_CLOUD_NAME) &&
+            Boolean(process.env.CLOUDINARY_API_KEY) &&
+            Boolean(process.env.CLOUDINARY_API_SECRET)
+        );
     }
 
     sanitizeSensitiveFields = (obj) => {
@@ -215,8 +239,7 @@ class UserController {
             }
 
             const requester = req.user;
-            const isAdmin = String(requester?.role || "").toLowerCase() === "admin";
-            if (!isAdmin && requester?.id !== requestedId) {
+            if (!this.canManageUser(requester, requestedId)) {
                 return res.status(403).json({ message: "You are not allowed to update this profile." });
             }
 
@@ -287,8 +310,8 @@ class UserController {
             }
 
             const requester = req.user;
-            const isAdmin = String(requester?.role || "").toLowerCase() === "admin";
-            if (!isAdmin && requester?.id !== requestedId) {
+            const isSystemOrAdmin = this.isSystemOrAdminRole(requester?.role);
+            if (!this.canManageUser(requester, requestedId)) {
                 return res.status(403).json({ message: "You are not allowed to reset this password." });
             }
 
@@ -311,7 +334,7 @@ class UserController {
                 return res.status(404).json({ message: "User not found." });
             }
 
-            if (!isAdmin) {
+            if (!isSystemOrAdmin) {
                 if (!currentPassword) {
                     return res.status(400).json({ message: "currentPassword is required." });
                 }
@@ -346,6 +369,116 @@ class UserController {
                 return res.status(404).json({ message: "User not found." });
             }
 
+            return res.status(500).json({ error: error.message });
+        }
+    }
+
+    uploadProfileImage = async (req, res) => {
+        try {
+            const requestedId = Number(req.params.id);
+            if (!Number.isInteger(requestedId) || requestedId <= 0) {
+                return res.status(400).json({ message: 'Invalid user id.' });
+            }
+
+            if (!this.canManageUser(req.user, requestedId)) {
+                return res.status(403).json({ message: 'You are not allowed to update this profile image.' });
+            }
+
+            const existingUser = await this.userModel.getUserById(requestedId);
+            if (!existingUser) {
+                return res.status(404).json({ message: 'User not found.' });
+            }
+
+            if (!req.file || !req.file.buffer) {
+                return res.status(400).json({ message: 'Image file is required.' });
+            }
+
+            const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+            if (!allowedMimeTypes.has(String(req.file.mimetype || '').toLowerCase())) {
+                return res.status(400).json({
+                    message: 'Only JPG, PNG, and WEBP images are allowed.',
+                });
+            }
+
+            if (!this.isCloudinaryConfigured()) {
+                return res.status(500).json({
+                    message: 'Cloudinary is not configured in backend environment.',
+                });
+            }
+
+            const publicId = `user_${requestedId}`;
+            const uploaded = await new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    {
+                        folder: 'university/profile-images',
+                        public_id: publicId,
+                        overwrite: true,
+                        resource_type: 'image',
+                    },
+                    (error, result) => {
+                        if (error) return reject(error);
+                        return resolve(result);
+                    }
+                );
+
+                stream.end(req.file.buffer);
+            });
+
+            if (!uploaded?.secure_url) {
+                return res.status(502).json({
+                    message: 'Profile image upload did not return a valid URL.',
+                });
+            }
+
+            const updatedUser = await this.userModel.updateProfileImageUrl(requestedId, uploaded.secure_url);
+            return res.status(200).json({
+                message: 'Profile image updated successfully.',
+                user: this.sanitizeSensitiveFields(updatedUser),
+            });
+        } catch (error) {
+            console.error('Upload profile image error:', error);
+            if (error?.http_code) {
+                return res.status(502).json({
+                    message: error.message || 'Cloudinary upload failed.',
+                });
+            }
+            return res.status(500).json({ error: error.message });
+        }
+    }
+
+    deleteProfileImage = async (req, res) => {
+        try {
+            const requestedId = Number(req.params.id);
+            if (!Number.isInteger(requestedId) || requestedId <= 0) {
+                return res.status(400).json({ message: 'Invalid user id.' });
+            }
+
+            if (!this.canManageUser(req.user, requestedId)) {
+                return res.status(403).json({ message: 'You are not allowed to remove this profile image.' });
+            }
+
+            const existingUser = await this.userModel.getUserById(requestedId);
+            if (!existingUser) {
+                return res.status(404).json({ message: 'User not found.' });
+            }
+
+            if (this.isCloudinaryConfigured()) {
+                const publicId = `university/profile-images/user_${requestedId}`;
+                try {
+                    await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+                } catch (cloudinaryError) {
+                    console.warn('Cloudinary delete profile image warning:', cloudinaryError?.message || cloudinaryError);
+                }
+            }
+
+            const updatedUser = await this.userModel.updateProfileImageUrl(requestedId, null);
+
+            return res.status(200).json({
+                message: 'Profile image removed successfully.',
+                user: this.sanitizeSensitiveFields(updatedUser),
+            });
+        } catch (error) {
+            console.error('Delete profile image error:', error);
             return res.status(500).json({ error: error.message });
         }
     }
