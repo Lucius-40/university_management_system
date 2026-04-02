@@ -426,6 +426,71 @@ class EnrollmentModel {
             }
         );
     }
+
+        getStudentCoursesForTermWithTeacher = (student_id, term_id) => {
+                return this.db.run(
+                        'get_student_courses_for_term_with_teacher',
+                        async () => {
+                                const query = `
+                                        SELECT
+                                                se.id AS enrollment_id,
+                                                se.course_offering_id,
+                                                se.status AS enrollment_status,
+                                                se.grade,
+                                                se.is_retake,
+                                                se.credit_when_taking,
+                                                se.enrollment_timestamp,
+                                                co.is_optional,
+                                                co.max_capacity,
+                                                c.id AS course_id,
+                                                c.course_code,
+                                                c.name AS course_name,
+                                                c.credit_hours,
+                                                COALESCE(teach_pick.section_name, ss.section_name) AS section_name,
+                                                teach_pick.teacher_id,
+                                                tu.name AS teacher_name,
+                                                tu.email AS teacher_email,
+                                                tt.official_mail AS teacher_official_mail,
+                                                tt.appointment::text AS teacher_appointment,
+                                                td.code AS teacher_department_code,
+                                                td.name AS teacher_department_name
+                                        FROM student_enrollments se
+                                        JOIN course_offerings co
+                                            ON co.id = se.course_offering_id
+                                        JOIN courses c
+                                            ON c.id = co.course_id
+                                        LEFT JOIN student_sections ss
+                                            ON ss.student_id = se.student_id
+                                        LEFT JOIN LATERAL (
+                                                SELECT te.teacher_id, te.section_name
+                                                FROM teaches te
+                                                WHERE te.course_offering_id = se.course_offering_id
+                                                    AND (ss.section_name IS NULL OR te.section_name = ss.section_name)
+                                                ORDER BY
+                                                        CASE
+                                                                WHEN ss.section_name IS NOT NULL AND te.section_name = ss.section_name THEN 0
+                                                                ELSE 1
+                                                        END,
+                                                        te.teacher_id
+                                                LIMIT 1
+                                        ) teach_pick ON TRUE
+                                        LEFT JOIN teachers tt
+                                            ON tt.user_id = teach_pick.teacher_id
+                                        LEFT JOIN users tu
+                                            ON tu.id = tt.user_id
+                                        LEFT JOIN departments td
+                                            ON td.id = tt.department_id
+                                        WHERE se.student_id = $1
+                                            AND co.term_id = $2
+                                            AND se.status IN ('Pending', 'Enrolled', 'Archived')
+                                        ORDER BY c.course_code ASC, se.enrollment_timestamp ASC, se.id ASC;
+                                `;
+
+                                const result = await this.db.query_executor(query, [student_id, term_id]);
+                                return result.rows;
+                        }
+                );
+        }
 }
 
 module.exports = EnrollmentModel;

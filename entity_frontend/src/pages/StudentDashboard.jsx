@@ -19,6 +19,9 @@ import RegistrationSection from './studentDashboard/RegistrationSection';
 import InitialExamRoutineSection from './studentDashboard/InitialExamRoutineSection';
 import ViewGradesSection from './studentDashboard/ViewGradesSection';
 import DuesStatusSection from './studentDashboard/DuesStatusSection';
+import AcademicOverviewSection from './studentDashboard/AcademicOverviewSection';
+import EnrolledCoursesSection from './studentDashboard/EnrolledCoursesSection';
+import ProgressTrackerSection from './studentDashboard/ProgressTrackerSection';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -143,6 +146,45 @@ const StudentDashboard = () => {
             {isAcademicOpen && (
               <div className="ml-8 mt-2 space-y-2">
                 <NavLink
+                  to="/student/dashboard/academic/overview"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? 'bg-slate-700 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    }`
+                  }
+                >
+                  <BookOpen size={15} />
+                  Academic Overview
+                </NavLink>
+                <NavLink
+                  to="/student/dashboard/academic/enrolled-courses"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? 'bg-slate-700 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    }`
+                  }
+                >
+                  <BookOpen size={15} />
+                  Enrolled Courses
+                </NavLink>
+                <NavLink
+                  to="/student/dashboard/academic/progress-tracker"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
+                      isActive
+                        ? 'bg-slate-700 text-white'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    }`
+                  }
+                >
+                  <BookOpen size={15} />
+                  Progress Tracker
+                </NavLink>
+                <NavLink
                   to="/student/dashboard/academic/registration"
                   className={({ isActive }) =>
                     `flex items-center gap-2 w-full p-2 rounded text-sm transition ${
@@ -246,6 +288,9 @@ const StudentDashboard = () => {
             element={<Navigate to="/student/dashboard/profile/personal" replace />}
           />
           <Route path="/profile/my-advisor" element={<MyAdvisorSection />} />
+          <Route path="/academic/overview" element={<AcademicOverviewSection />} />
+          <Route path="/academic/enrolled-courses" element={<EnrolledCoursesSection />} />
+          <Route path="/academic/progress-tracker" element={<ProgressTrackerSection />} />
           <Route path="/academic/registration" element={<RegistrationSection />} />
           <Route
             path="/academic/initial-exam-routine"

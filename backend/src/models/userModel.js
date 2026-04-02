@@ -120,6 +120,24 @@ class UserModel{
         )
     }
 
+    updateProfileImageUrl = (id, profileImageUrl)=>{
+        return this.db.run(
+            'update_profile_image_url',
+            async()=>{
+                const query = `
+                    UPDATE users
+                    SET profile_image_url = $2
+                    WHERE id = $1
+                    RETURNING *;
+                `;
+
+                const params = [id, profileImageUrl];
+                const result = await this.db.query_executor(query, params);
+                return result.rows[0] || null;
+            }
+        )
+    }
+
     deleteUser = (payload)=>{
         return this.db.run(
             'delete_user',
@@ -208,6 +226,7 @@ class UserModel{
                         u.birth_date,
                         u.nid_number,
                         u.passport_number,
+                        u.profile_image_url,
                         u.emergency_contact_name,
                         u.emergency_contact_number,
                         u.emergency_contact_relation,
@@ -246,6 +265,7 @@ class UserModel{
                         u.birth_date,
                         u.nid_number,
                         u.passport_number,
+                        u.profile_image_url,
                         u.emergency_contact_name,
                         u.emergency_contact_number,
                         u.emergency_contact_relation,
@@ -290,6 +310,7 @@ class UserModel{
                         u.birth_date,
                         u.nid_number,
                         u.passport_number,
+                        u.profile_image_url,
                         u.emergency_contact_name,
                         u.emergency_contact_number,
                         u.emergency_contact_relation,

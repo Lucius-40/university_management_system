@@ -9,6 +9,8 @@ const auth = new AuthenticateToken();
 router.post('/', auth.authenticateToken, teacherController.createTeacher);
 router.post('/batch', auth.authenticateToken, teacherController.createTeachersBatch);
 router.get('/', auth.authenticateToken, teacherController.getAllTeachers);
+router.get('/search', auth.authenticateToken, teacherController.searchTeachers);
+router.get('/me/resource-overview', auth.authenticateToken, teacherController.getMyResourceOverview);
 router.get('/pending-registrations', auth.authenticateToken, teacherController.getPendingRegistrations);
 router.put('/students/:student_id/approve-all-pending', auth.authenticateToken, teacherController.approveAllPendingForStudent);
 router.put('/enrollments/:enrollment_id/decision', auth.authenticateToken, teacherController.decidePendingEnrollment);

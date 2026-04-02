@@ -1,9 +1,21 @@
 import { Link, NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { ClipboardCheck, LayoutDashboard, LogOut, FileSpreadsheet, PenSquare } from 'lucide-react';
+import {
+  ClipboardCheck,
+  Home,
+  LayoutDashboard,
+  LogOut,
+  FileSpreadsheet,
+  PenSquare,
+  UserCog,
+  UserRound,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import TeacherResourceOverviewSection from './teacherDashboard/TeacherResourceOverviewSection';
 import PendingRegistrationsSection from './teacherDashboard/PendingRegistrationsSection';
 import MarkEntrySection from './teacherDashboard/MarkEntrySection';
 import MarkUploadSection from './teacherDashboard/MarkUploadSection';
+import UpdateProfileSection from './studentDashboard/UpdateProfileSection';
+import UpdatePersonalInfoSection from './studentDashboard/UpdatePersonalInfoSection';
 
 const TeacherDashboard = () => {
   const navigate = useNavigate();
@@ -19,7 +31,7 @@ const TeacherDashboard = () => {
       <aside className="w-72 bg-slate-900 text-white flex flex-col">
         <div className="p-4 border-b border-slate-700">
           <Link
-            to="/teacher/dashboard/pending-registrations"
+            to="/teacher/dashboard/overview"
             className="text-xl font-bold flex items-center gap-2 text-white hover:text-slate-200 transition"
           >
             <LayoutDashboard size={20} />
@@ -28,6 +40,20 @@ const TeacherDashboard = () => {
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          <NavLink
+            to="/teacher/dashboard/overview"
+            className={({ isActive }) =>
+              `flex items-center gap-3 w-full p-3 rounded transition ${
+                isActive
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            <Home size={18} />
+            Overview
+          </NavLink>
+
           <NavLink
             to="/teacher/dashboard/pending-registrations"
             className={({ isActive }) =>
@@ -40,6 +66,34 @@ const TeacherDashboard = () => {
           >
             <ClipboardCheck size={18} />
             Pending Registrations
+          </NavLink>
+
+          <NavLink
+            to="/teacher/dashboard/profile/update-profile"
+            className={({ isActive }) =>
+              `flex items-center gap-3 w-full p-3 rounded transition ${
+                isActive
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            <UserCog size={18} />
+            Update Profile
+          </NavLink>
+
+          <NavLink
+            to="/teacher/dashboard/profile/personal"
+            className={({ isActive }) =>
+              `flex items-center gap-3 w-full p-3 rounded transition ${
+                isActive
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            <UserRound size={18} />
+            Reset Password
           </NavLink>
 
           <NavLink
@@ -87,14 +141,17 @@ const TeacherDashboard = () => {
         <Routes>
           <Route
             path="/"
-            element={<Navigate to="/teacher/dashboard/pending-registrations" replace />}
+            element={<Navigate to="/teacher/dashboard/overview" replace />}
           />
+          <Route path="/overview" element={<TeacherResourceOverviewSection />} />
           <Route path="/pending-registrations" element={<PendingRegistrationsSection />} />
+          <Route path="/profile/update-profile" element={<UpdateProfileSection />} />
+          <Route path="/profile/personal" element={<UpdatePersonalInfoSection />} />
           <Route path="/mark-entry" element={<MarkEntrySection />} />
           <Route path="/mark-upload" element={<MarkUploadSection />} />
           <Route
             path="*"
-            element={<Navigate to="/teacher/dashboard/pending-registrations" replace />}
+            element={<Navigate to="/teacher/dashboard/overview" replace />}
           />
         </Routes>
       </main>

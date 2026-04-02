@@ -45,7 +45,6 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   const [courses, setCourses] = useState([]);
   const [sections, setSections] = useState([]);
   const [offerings, setOfferings] = useState([]);
-  const [teachers, setTeachers] = useState([]);
   const [teachingAssignments, setTeachingAssignments] = useState([]);
 
   const [search, setSearch] = useState("");
@@ -133,7 +132,6 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
             setTerms(parsed.terms || []);
             setCourses(parsed.courses || []);
             setSections(parsed.sections || []);
-            setTeachers(parsed.teachers || []);
             setIsLoading(false);
             return;
           }
@@ -208,50 +206,15 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
         }
 
         if (activeTab === "teaches") {
-          const [termRes, deptRes, sectionRes, teacherRes, teacherInspectRes] = await Promise.all([
+          const [termRes, deptRes, sectionRes] = await Promise.all([
             api.get("/terms"),
             api.get("/departments"),
             api.get("/sections"),
-            api.get("/teachers"),
-            api.get("/users/inspect", { params: { identity: "teacher" } }),
           ]);
-
-          const teacherRows = teacherRes.data || [];
-          const teacherInspectRows = teacherInspectRes.data || [];
-          const teacherMap = new Map();
-
-          teacherRows.forEach((teacher) => {
-            teacherMap.set(Number(teacher.user_id), { ...teacher });
-          });
-
-          teacherInspectRows.forEach((teacher) => {
-            const teacherId = Number(teacher.user_id);
-            const existing = teacherMap.get(teacherId) || {};
-            const mergedName =
-              teacher.full_name ||
-              teacher.name ||
-              existing.full_name ||
-              existing.name ||
-              "";
-
-            teacherMap.set(teacherId, {
-              ...existing,
-              ...teacher,
-              user_id: teacherId,
-              name: mergedName,
-              full_name: mergedName,
-              official_mail: teacher.official_mail || existing.official_mail,
-              appointment: teacher.appointment || existing.appointment,
-              department_id: teacher.department_id ?? existing.department_id,
-            });
-          });
-
-          const mergedTeachers = [...teacherMap.values()];
 
           setTerms(termRes.data || []);
           setDepartments(deptRes.data || []);
           setSections(sectionRes.data || []);
-          setTeachers(mergedTeachers);
           setOfferings([]);
 
           localStorage.setItem(
@@ -260,7 +223,6 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
               terms: termRes.data || [],
               departments: deptRes.data || [],
               sections: sectionRes.data || [],
-              teachers: mergedTeachers,
             })
           );
         }
@@ -989,21 +951,6 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
     });
   }, [teachingAssignments, teachInspection]);
 
-  const teacherWithIdentity = useMemo(() => {
-    return [...teachers]
-      .map((teacher) => {
-        const teacherId = Number(teacher.user_id);
-        const userName = teacher.name || teacher.full_name || String(teacherId);
-        const dept = departments.find((department) => Number(department.id) === Number(teacher.department_id));
-        return {
-          ...teacher,
-          display_name: userName,
-          department_code: dept?.code || "-",
-        };
-      })
-      .sort((left, right) => String(left.display_name).localeCompare(String(right.display_name)));
-  }, [teachers, departments]);
-
   const supportsModeToggle = activeTab !== "department" && activeTab !== "routine";
   const supportsBatchMode = activeTab === "course";
   const showInsertion = activeTab === "department" || activeTab === "routine" || activeMode === "insertion";
@@ -1172,7 +1119,6 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
           offerings={offerings}
           teachSections={teachSections}
           toggleTeachSection={toggleTeachSection}
-          teacherWithIdentity={teacherWithIdentity}
           teachBatchResult={teachBatchResult}
           teachInspection={teachInspection}
           setTeachInspection={setTeachInspection}

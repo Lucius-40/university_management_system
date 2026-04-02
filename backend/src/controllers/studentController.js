@@ -1001,6 +1001,233 @@ class StudentController {
         }
     }
 
+    getAcademicOverview = async (req, res) => {
+        try {
+            const student_id = Number(req.params.user_id);
+            if (!Number.isInteger(student_id) || student_id <= 0) {
+                return res.status(400).json({ error: 'Invalid student id.' });
+            }
+
+            const requesterRole = String(req.user?.role || '').toLowerCase();
+            const requesterId = Number(req.user?.id);
+            const canReadStudentAcademic = requesterRole === 'student' || requesterRole === 'system' || requesterRole === 'admin';
+
+            if (!canReadStudentAcademic) {
+                return res.status(403).json({ error: 'You are not allowed to access student academic overview.' });
+            }
+
+            if (requesterRole === 'student' && requesterId !== student_id) {
+                return res.status(403).json({ error: 'You are not allowed to access another student overview.' });
+            }
+
+            const student = await this.studentModel.getStudentByUserId(student_id);
+            if (!student) {
+                return res.status(404).json({ error: 'Student not found.' });
+            }
+
+            const context = await this.studentModel.getCurrentAcademicContextByStudentId(student_id);
+            if (!context) {
+                return res.status(404).json({ error: 'Student academic context not found.' });
+            }
+
+            const toNumber = (value, fallback = 0) => {
+                const parsed = Number(value);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
+
+            const termId = Number(context.term_id);
+            const maxCredit = toNumber(context.max_credit, 23);
+
+            if (!Number.isInteger(termId) || termId <= 0) {
+                return res.status(200).json({
+                    student: {
+                        user_id: student_id,
+                        name: context.student_name,
+                        email: context.student_email,
+                        profile_image_url: context.profile_image_url || null,
+                        roll_number: context.roll_number,
+                        official_mail: context.official_mail || null,
+                        status: context.student_status,
+                    },
+                    academic_overview: {
+                        term: null,
+                        department: null,
+                        advisor: context.advisor_id
+                            ? {
+                                id: Number(context.advisor_id),
+                                name: context.advisor_name,
+                                email: context.advisor_email,
+                                appointment: context.advisor_appointment,
+                            }
+                            : null,
+                        credits: {
+                            current: 0,
+                            limit: maxCredit,
+                            remaining: maxCredit,
+                        },
+                    },
+                    enrolled_courses: [],
+                    progress_tracker: [],
+                    term_result_snapshot: [],
+                });
+            }
+
+            const [enrollmentRows, termResultRows, currentCreditsRaw] = await Promise.all([
+                this.enrollmentModel.getStudentCoursesForTermWithTeacher(student_id, termId),
+                this.enrollmentModel.getStudentTermResults(student_id, termId),
+                this.enrollmentModel.getTotalCreditsForTerm(student_id, termId),
+            ]);
+
+            const enrollmentIds = (Array.isArray(enrollmentRows) ? enrollmentRows : [])
+                .map((row) => Number(row.enrollment_id))
+                .filter((id) => Number.isInteger(id) && id > 0);
+
+            const publishedComponents = enrollmentIds.length > 0
+                ? await this.markingModel.getPublishedComponentsByEnrollmentIds(enrollmentIds)
+                : [];
+
+            const componentsByEnrollmentId = new Map();
+            for (const component of publishedComponents || []) {
+                const enrollmentId = Number(component.enrollment_id);
+                if (!componentsByEnrollmentId.has(enrollmentId)) {
+                    componentsByEnrollmentId.set(enrollmentId, []);
+                }
+
+                componentsByEnrollmentId.get(enrollmentId).push({
+                    id: Number(component.id),
+                    type: component.type,
+                    total_marks: toNumber(component.total_marks, 0),
+                    marks_obtained: toNumber(component.marks_obtained, 0),
+                    status: component.status,
+                });
+            }
+
+            const termResultByEnrollmentId = new Map();
+            for (const row of termResultRows || []) {
+                const enrollmentId = Number(row.enrollment_id);
+                if (Number.isInteger(enrollmentId) && enrollmentId > 0) {
+                    termResultByEnrollmentId.set(enrollmentId, row);
+                }
+            }
+
+            const enrolledCourses = (enrollmentRows || []).map((row) => {
+                const enrollmentId = Number(row.enrollment_id);
+                const marks = componentsByEnrollmentId.get(enrollmentId) || [];
+                const marksObtained = marks.reduce((sum, item) => sum + toNumber(item.marks_obtained, 0), 0);
+                const marksTotal = marks.reduce((sum, item) => sum + toNumber(item.total_marks, 0), 0);
+                const progressPercentage = marksTotal > 0
+                    ? Number(((marksObtained * 100) / marksTotal).toFixed(2))
+                    : null;
+
+                const termResult = termResultByEnrollmentId.get(enrollmentId) || null;
+
+                return {
+                    enrollment_id: enrollmentId,
+                    course_offering_id: Number(row.course_offering_id),
+                    enrollment_status: row.enrollment_status,
+                    grade: row.grade || null,
+                    is_retake: Boolean(row.is_retake),
+                    credit_when_taking: toNumber(row.credit_when_taking, 0),
+                    course: {
+                        id: Number(row.course_id),
+                        code: row.course_code,
+                        name: row.course_name,
+                        credit_hours: toNumber(row.credit_hours, 0),
+                        is_optional: Boolean(row.is_optional),
+                    },
+                    section_name: row.section_name || null,
+                    teacher: row.teacher_id
+                        ? {
+                            id: Number(row.teacher_id),
+                            name: row.teacher_name,
+                            email: row.teacher_email,
+                            official_mail: row.teacher_official_mail,
+                            appointment: row.teacher_appointment,
+                            department_code: row.teacher_department_code,
+                            department_name: row.teacher_department_name,
+                        }
+                        : null,
+                    published_components: marks,
+                    progress: {
+                        obtained: Number(marksObtained.toFixed(2)),
+                        total: Number(marksTotal.toFixed(2)),
+                        percentage: progressPercentage,
+                    },
+                    term_result: termResult
+                        ? {
+                            total_score: toNumber(termResult.total_score, 0),
+                            percentage: toNumber(termResult.percentage, 0),
+                            grade: termResult.grade || null,
+                            ct_best3_score: toNumber(termResult.ct_best3_score, 0),
+                            attendance_score: toNumber(termResult.attendance_score, 0),
+                            final_score: toNumber(termResult.final_score, 0),
+                        }
+                        : null,
+                };
+            });
+
+            const progressTracker = enrolledCourses.map((course) => ({
+                enrollment_id: course.enrollment_id,
+                course_offering_id: course.course_offering_id,
+                course_code: course.course.code,
+                course_name: course.course.name,
+                enrollment_status: course.enrollment_status,
+                marks: course.published_components,
+                progress: course.progress,
+                term_result: course.term_result,
+            }));
+
+            const currentCredits = toNumber(currentCreditsRaw, 0);
+            const remainingCredits = Number((maxCredit - currentCredits).toFixed(1));
+
+            return res.status(200).json({
+                student: {
+                    user_id: student_id,
+                    name: context.student_name,
+                    email: context.student_email,
+                    profile_image_url: context.profile_image_url || null,
+                    roll_number: context.roll_number,
+                    official_mail: context.official_mail || null,
+                    status: context.student_status,
+                },
+                academic_overview: {
+                    term: {
+                        id: termId,
+                        term_number: Number(context.term_number),
+                        start_date: context.term_start_date,
+                        end_date: context.term_end_date,
+                    },
+                    department: context.department_id
+                        ? {
+                            id: Number(context.department_id),
+                            code: context.department_code,
+                            name: context.department_name,
+                        }
+                        : null,
+                    advisor: context.advisor_id
+                        ? {
+                            id: Number(context.advisor_id),
+                            name: context.advisor_name,
+                            email: context.advisor_email,
+                            appointment: context.advisor_appointment,
+                        }
+                        : null,
+                    credits: {
+                        current: currentCredits,
+                        limit: maxCredit,
+                        remaining: remainingCredits,
+                    },
+                },
+                enrolled_courses: enrolledCourses,
+                progress_tracker: progressTracker,
+                term_result_snapshot: termResultRows || [],
+            });
+        } catch (error) {
+            console.error('Get academic overview error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+    }
+
     getAllResults = async (req, res) => {
         try {
             const student_id = Number(req.params.user_id);

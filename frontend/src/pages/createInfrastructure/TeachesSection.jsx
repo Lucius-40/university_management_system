@@ -1,5 +1,6 @@
+import { useEffect, useMemo, useState } from "react";
 import SearchBar from "../../components/SearchBar";
-import TeacherSearchDropdown from "../../components/TeacherSearchDropdown";
+import TeacherSearchModal from "../../components/TeacherSearchModal";
 
 const TeachesSection = ({
   activeTab,
@@ -15,7 +16,6 @@ const TeachesSection = ({
   offerings,
   teachSections,
   toggleTeachSection,
-  teacherWithIdentity,
   teachBatchResult,
   teachInspection,
   setTeachInspection,
@@ -24,6 +24,29 @@ const TeachesSection = ({
   filteredTeachingAssignments,
   openInsights,
 }) => {
+  const [isTeacherModalOpen, setIsTeacherModalOpen] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState(null);
+
+  useEffect(() => {
+    if (!teachForm.teacher_id) {
+      setSelectedTeacher(null);
+    }
+  }, [teachForm.teacher_id]);
+
+  const selectedTeacherText = useMemo(() => {
+    if (selectedTeacher?.name) {
+      const appointment = selectedTeacher.appointment ? ` (${selectedTeacher.appointment})` : "";
+      const dept = selectedTeacher.department_code ? ` [${selectedTeacher.department_code}]` : "";
+      return `${selectedTeacher.name}${appointment}${dept}`;
+    }
+
+    if (teachForm.teacher_id) {
+      return `Teacher ID: ${teachForm.teacher_id}`;
+    }
+
+    return "Search and select teacher";
+  }, [selectedTeacher, teachForm.teacher_id]);
+
   if (activeTab !== "teaches") return null;
 
   return (
@@ -143,15 +166,16 @@ const TeachesSection = ({
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium mb-1">Teacher</label>
-              <TeacherSearchDropdown
-                teachers={teacherWithIdentity}
-                value={teachForm.teacher_id}
-                onChange={(event) =>
-                  setTeachForm((prev) => ({ ...prev, teacher_id: event.target.value }))
-                }
-                departmentCode={departments.find((d) => d.id === teachForm.department_id)?.code}
-                required
-              />
+              <button
+                type="button"
+                onClick={() => setIsTeacherModalOpen(true)}
+                className="w-full rounded border border-slate-300 bg-white p-2 text-left text-sm hover:bg-slate-50"
+              >
+                {selectedTeacherText}
+              </button>
+              <p className="mt-1 text-xs text-slate-500">
+                Teachers are loaded on demand with server-side search.
+              </p>
             </div>
 
             <div className="md:col-span-2">
@@ -238,20 +262,16 @@ const TeachesSection = ({
                 ))}
             </select>
 
-            <select
+            <input
+              type="number"
+              min="1"
               value={teachInspection.teacher_id}
               onChange={(event) =>
                 setTeachInspection((prev) => ({ ...prev, teacher_id: event.target.value }))
               }
+              placeholder="Teacher ID (optional)"
               className="w-full p-2 border rounded"
-            >
-              <option value="">All Teachers</option>
-              {teacherWithIdentity.map((teacher) => (
-                <option key={teacher.user_id} value={teacher.user_id}>
-                  {teacher.display_name}
-                </option>
-              ))}
-            </select>
+            />
 
             <button
               type="button"
@@ -317,6 +337,21 @@ const TeachesSection = ({
           </div>
         </div>
       )}
+
+      <TeacherSearchModal
+        isOpen={isTeacherModalOpen}
+        onClose={() => setIsTeacherModalOpen(false)}
+        departments={departments}
+        offeringId={teachForm.course_offering_id}
+        onSelect={(teacher) => {
+          setTeachForm((prev) => ({
+            ...prev,
+            teacher_id: String(teacher.user_id),
+          }));
+          setSelectedTeacher(teacher);
+          setIsTeacherModalOpen(false);
+        }}
+      />
     </>
   );
 };

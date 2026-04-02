@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil, RefreshCw, Save, X } from "lucide-react";
+import { Pencil, Power, RefreshCw, Save, X } from "lucide-react";
 import api from "../services/api";
 import Loader from "../components/Loader";
 import { compareDateOnly, formatDateDisplay, formatDateInput } from "../utils/dateFormat";
@@ -19,6 +19,11 @@ const SystemStateDashboard = () => {
   const [form, setForm] = useState(EMPTY_FORM);
   const [state, setState] = useState(null);
   const [canEdit, setCanEdit] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
+  const [sessionResult, setSessionResult] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [impactPreview, setImpactPreview] = useState(null);
 
   const fetchState = useCallback(async () => {
     try {
@@ -101,6 +106,60 @@ const SystemStateDashboard = () => {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openEndSessionPreviewModal = async () => {
+    if (!canEdit || endingSession || previewLoading) return;
+
+    try {
+      setPreviewLoading(true);
+      setMessage({ type: "", text: "" });
+
+      const response = await api.get("/system-state/end-session-preview");
+      setImpactPreview(response.data || null);
+      setPreviewModalOpen(true);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to generate end-session impact preview.",
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleConfirmEndCurrentSession = async () => {
+    if (!canEdit || endingSession) return;
+
+    try {
+      setEndingSession(true);
+      setMessage({ type: "", text: "" });
+
+      const response = await api.post("/system-state/end-session", {
+        confirm: true,
+        reason: "Manual kill switch from system dashboard",
+      });
+
+      const payload = response.data || {};
+      const summary = payload.summary || {};
+
+      setSessionResult(payload);
+      setPreviewModalOpen(false);
+      setImpactPreview(null);
+      setMessage({
+        type: "success",
+        text: `Session ended. Promoted: ${summary.promoted_count || 0}, Graduated: ${summary.graduated_count || 0}, Failed: ${summary.failed_count || 0}.`,
+      });
+
+      await fetchState();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to end current session.",
+      });
+    } finally {
+      setEndingSession(false);
     }
   };
 
@@ -270,6 +329,207 @@ const SystemStateDashboard = () => {
           </form>
         )}
       </section>
+
+      <section className="rounded-xl border border-rose-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Session End Kill Switch</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Ends the active session immediately and upgrades students based on finalized results.
+            </p>
+            <p className="mt-2 text-xs text-slate-500">
+              Last run status: <span className="font-semibold uppercase">{String(state?.session_end_status || "idle")}</span>
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={openEndSessionPreviewModal}
+            disabled={!canEdit || endingSession || saving || previewLoading}
+            className="inline-flex items-center justify-center gap-2 rounded bg-rose-600 px-5 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+          >
+            <Power size={16} />
+            {previewLoading ? "Preparing Report..." : "End Current Session Now"}
+          </button>
+        </div>
+
+        {!canEdit && (
+          <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Only system admin can execute this action.
+          </p>
+        )}
+
+        {sessionResult?.summary && (
+          <div className="mt-5 space-y-4">
+            <div className="grid gap-3 text-sm md:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Terms Processed</p>
+                <p className="mt-1 text-base font-semibold text-slate-900">{sessionResult.summary.terms_processed || 0}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending Auto Approved</p>
+                <p className="mt-1 text-base font-semibold text-slate-900">{sessionResult.summary.pending_auto_approved || 0}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Archived Enrollments</p>
+                <p className="mt-1 text-base font-semibold text-slate-900">{sessionResult.summary.archived_enrollments || 0}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Promoted</p>
+                <p className="mt-1 text-base font-semibold text-emerald-700">{sessionResult.summary.promoted_count || 0}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Graduated</p>
+                <p className="mt-1 text-base font-semibold text-indigo-700">{sessionResult.summary.graduated_count || 0}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Failed/Skipped</p>
+                <p className="mt-1 text-base font-semibold text-rose-700">
+                  {(sessionResult.summary.failed_count || 0) + (sessionResult.summary.skipped_count || 0)}
+                </p>
+              </div>
+            </div>
+
+            {Array.isArray(sessionResult.student_outcomes) && sessionResult.student_outcomes.length > 0 && (
+              <div className="rounded-lg border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <h3 className="text-sm font-semibold text-slate-800">Student Outcomes</h3>
+                </div>
+                <div className="max-h-72 overflow-auto px-4 py-3">
+                  <table className="w-full text-left text-xs text-slate-700">
+                    <thead className="text-slate-500">
+                      <tr>
+                        <th className="py-1 pr-2">Student</th>
+                        <th className="py-1 pr-2">Outcome</th>
+                        <th className="py-1 pr-2">From Term</th>
+                        <th className="py-1 pr-2">To Term</th>
+                        <th className="py-1 pr-2">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sessionResult.student_outcomes.map((row, index) => (
+                        <tr key={`${row.student_id}-${index}`} className="border-t border-slate-100">
+                          <td className="py-1 pr-2">{row.student_id}</td>
+                          <td className="py-1 pr-2 uppercase">{row.outcome}</td>
+                          <td className="py-1 pr-2">{row.from_term_id ?? "-"}</td>
+                          <td className="py-1 pr-2">{row.to_term_id ?? "-"}</td>
+                          <td className="py-1 pr-2">{row.reason || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {previewModalOpen && impactPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+          <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Confirm End Current Session</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Compact impact report for {formatDateDisplay(impactPreview?.session_window?.term_start)} to {formatDateDisplay(impactPreview?.session_window?.term_end)}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (endingSession) return;
+                  setPreviewModalOpen(false);
+                }}
+                className="rounded border border-slate-300 bg-white p-1.5 text-slate-600 hover:bg-slate-50"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <div className="grid gap-3 text-sm md:grid-cols-3">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Eligible For Next Term</p>
+                  <p className="mt-1 text-xl font-semibold text-emerald-800">{impactPreview.summary?.students_eligible_for_next_term || 0}</p>
+                </div>
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Will Graduate</p>
+                  <p className="mt-1 text-xl font-semibold text-indigo-800">{impactPreview.summary?.students_will_graduate || 0}</p>
+                </div>
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Not Eligible</p>
+                  <p className="mt-1 text-xl font-semibold text-rose-800">{impactPreview.summary?.students_not_eligible || 0}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 text-sm md:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Entities Affected</p>
+                  <p className="mt-1 text-slate-800">Students considered: <span className="font-semibold">{impactPreview.summary?.students_considered || 0}</span></p>
+                  <p className="text-slate-800">Enrollments to archive: <span className="font-semibold">{impactPreview.summary?.enrollments_to_archive || 0}</span></p>
+                  <p className="text-slate-800">Pending to auto-approve: <span className="font-semibold">{impactPreview.summary?.pending_to_auto_approve || 0}</span></p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quality Notes</p>
+                  <p className="mt-1 text-slate-800">Terms processed: <span className="font-semibold">{impactPreview.summary?.terms_processed || 0}</span></p>
+                  <p className="text-slate-800">Missing grade to default F: <span className="font-semibold">{impactPreview.summary?.enrollments_missing_grade_to_f || 0}</span></p>
+                </div>
+              </div>
+
+              {impactPreview.can_execute === false && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  <p className="font-semibold">Cannot execute right now</p>
+                  <p className="mt-1">{impactPreview.blocking_reason || "Session end operation is currently blocked."}</p>
+                </div>
+              )}
+
+              {Array.isArray(impactPreview.eligible_next_term_targets) && impactPreview.eligible_next_term_targets.length > 0 && (
+                <div className="rounded-lg border border-slate-200">
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Eligible Student Distribution By Next Term</h4>
+                  </div>
+                  <div className="max-h-36 overflow-auto px-4 py-3 text-sm text-slate-700">
+                    {impactPreview.eligible_next_term_targets.map((item) => (
+                      <div key={`target-term-${item.term_id}`} className="flex items-center justify-between border-b border-slate-100 py-1 last:border-b-0">
+                        <span>Term ID {item.term_id}</span>
+                        <span className="font-semibold">{item.student_count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  if (endingSession) return;
+                  setPreviewModalOpen(false);
+                }}
+                disabled={endingSession}
+                className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmEndCurrentSession}
+                disabled={endingSession || impactPreview?.can_execute === false}
+                className="inline-flex items-center gap-2 rounded bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                <Power size={14} />
+                {endingSession
+                  ? "Ending Session..."
+                  : impactPreview?.can_execute === false
+                    ? "Execution Blocked"
+                    : "Confirm End Current Session"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

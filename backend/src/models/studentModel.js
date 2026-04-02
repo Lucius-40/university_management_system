@@ -122,6 +122,53 @@ class StudentModel {
     }
 
     // Registration helper methods
+    getCurrentAdviseesByTeacherId = (teacher_id) => {
+        return this.db.run(
+            'get_current_advisees_by_teacher_id',
+            async () => {
+                const query = `
+                    SELECT
+                        s.user_id AS student_id,
+                        s.roll_number,
+                        s.status AS student_status,
+                        u.name AS student_name,
+                        COALESCE(s.official_mail, u.email) AS student_email,
+                        t.id AS current_term_id,
+                        t.term_number AS current_term_number,
+                        d.id AS department_id,
+                        d.code AS department_code,
+                        d.name AS department_name,
+                        sah.start_date AS advisor_since,
+                        COALESCE(pending.pending_count, 0) AS pending_enrollments_count,
+                        COALESCE(enrolled.enrolled_count, 0) AS active_or_archived_enrollments_count
+                    FROM student_advisor_history sah
+                    JOIN students s ON s.user_id = sah.student_id
+                    JOIN users u ON u.id = s.user_id
+                    LEFT JOIN terms t ON t.id = s.current_term
+                    LEFT JOIN departments d ON d.id = t.department_id
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*)::int AS pending_count
+                        FROM student_enrollments se
+                        WHERE se.student_id = s.user_id
+                          AND se.status = 'Pending'
+                    ) pending ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*)::int AS enrolled_count
+                        FROM student_enrollments se
+                        WHERE se.student_id = s.user_id
+                          AND se.status IN ('Enrolled', 'Archived')
+                    ) enrolled ON TRUE
+                    WHERE sah.teacher_id = $1
+                      AND sah.end_date IS NULL
+                    ORDER BY s.roll_number, s.user_id;
+                `;
+
+                const result = await this.db.query_executor(query, [teacher_id]);
+                return result.rows;
+            }
+        );
+    }
+
     getCurrentAdvisor = (student_id) => {
         return this.db.run(
             'get_current_advisor',
@@ -212,6 +259,64 @@ class StudentModel {
             }
         );
     }
+
+        getCurrentAcademicContextByStudentId = (student_id) => {
+                return this.db.run(
+                        'get_current_academic_context_by_student_id',
+                        async () => {
+                                const query = `
+                                        SELECT
+                                                s.user_id AS student_id,
+                                                s.roll_number,
+                                                s.official_mail,
+                                                s.status AS student_status,
+                                                u.name AS student_name,
+                                                u.email AS student_email,
+                                                u.profile_image_url,
+                                                t.id AS term_id,
+                                                t.term_number,
+                                                t.start_date AS term_start_date,
+                                                t.end_date AS term_end_date,
+                                                t.max_credit,
+                                                d.id AS department_id,
+                                                d.code AS department_code,
+                                                d.name AS department_name,
+                                                advisor.teacher_id AS advisor_id,
+                                                advisor.advisor_name,
+                                                advisor.advisor_email,
+                                                advisor.advisor_appointment
+                                        FROM students s
+                                        JOIN users u
+                                            ON u.id = s.user_id
+                                        LEFT JOIN terms t
+                                            ON t.id = s.current_term
+                                        LEFT JOIN departments d
+                                            ON d.id = t.department_id
+                                        LEFT JOIN LATERAL (
+                                                SELECT
+                                                        sah.teacher_id,
+                                                        tu.name AS advisor_name,
+                                                        COALESCE(tt.official_mail, tu.email) AS advisor_email,
+                                                        tt.appointment::text AS advisor_appointment
+                                                FROM student_advisor_history sah
+                                                JOIN teachers tt
+                                                    ON tt.user_id = sah.teacher_id
+                                                JOIN users tu
+                                                    ON tu.id = tt.user_id
+                                                WHERE sah.student_id = s.user_id
+                                                    AND sah.end_date IS NULL
+                                                ORDER BY sah.start_date DESC, sah.id DESC
+                                                LIMIT 1
+                                        ) advisor ON TRUE
+                                        WHERE s.user_id = $1
+                                        LIMIT 1;
+                                `;
+
+                                const result = await this.db.query_executor(query, [student_id]);
+                                return result.rows[0] || null;
+                        }
+                );
+        }
 
     getCurrentAdvisorByStudentId = (student_id) => {
         return this.db.run(
