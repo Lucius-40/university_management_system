@@ -5,6 +5,12 @@ const MarkingModel = require('../models/markingModel.js');
 const DepartmentModel = require('../models/departmentModel.js');
 const DB_Connection = require('../database/db.js');
 const bcrypt = require('bcryptjs');
+const {
+    validateAddressField,
+    validateEmailField,
+    validateNameField,
+    validatePhoneField,
+} = require('../utils/inputValidation');
 
 class TeacherController {
     constructor() {
@@ -464,7 +470,7 @@ class TeacherController {
 
     createTeacher = async (req, res) => {
         try {
-            const teacher = await this.teacherModel.createTeacher(req.body);
+            const teacher = await this.teacherModel.createTeacher(req.validatedBody || req.body);
             res.status(201).json(teacher);
         } catch (error) {
             console.error("Create Teacher error:", error);
@@ -563,6 +569,23 @@ class TeacherController {
                         row: rowNumber,
                         status: "failed",
                         reason: `Validation failed: ${missing.join(", ")}`,
+                    });
+                    continue;
+                }
+
+                const formatErrors = {};
+                validateNameField(formatErrors, 'full_name', full_name, true);
+                validateEmailField(formatErrors, 'email', email, true);
+                validateEmailField(formatErrors, 'official_mail', official_mail, true);
+                validatePhoneField(formatErrors, 'mobile_number', mobile_number, true);
+                validateAddressField(formatErrors, 'present_address', present_address, true);
+                validateAddressField(formatErrors, 'permanent_address', permanent_address, true);
+
+                if (Object.keys(formatErrors).length > 0) {
+                    results.push({
+                        row: rowNumber,
+                        status: 'failed',
+                        reason: `Validation failed: ${Object.values(formatErrors).join(', ')}`,
                     });
                     continue;
                 }
@@ -746,7 +769,8 @@ class TeacherController {
 
     getTeacherByUserId = async (req, res) => {
         try {
-            const teacher = await this.teacherModel.getTeacherByUserId(req.params.user_id);
+            const userId = Number(req.validatedParams?.user_id || req.params.user_id);
+            const teacher = await this.teacherModel.getTeacherByUserId(userId);
             if (!teacher) {
                 return res.status(404).json({ message: "Teacher not found" });
             }
@@ -759,7 +783,25 @@ class TeacherController {
 
     updateTeacher = async (req, res) => {
         try {
-            const teacher = await this.teacherModel.updateTeacher(req.params.user_id, req.body);
+            const userId = Number(req.validatedParams?.user_id || req.params.user_id);
+            const existing = await this.teacherModel.getTeacherByUserId(userId);
+            if (!existing) {
+                return res.status(404).json({ message: "Teacher not found" });
+            }
+
+            const mergedPayload = {
+                appointment: Object.prototype.hasOwnProperty.call(req.validatedBody || {}, 'appointment')
+                    ? req.validatedBody.appointment
+                    : existing.appointment,
+                official_mail: Object.prototype.hasOwnProperty.call(req.validatedBody || {}, 'official_mail')
+                    ? req.validatedBody.official_mail
+                    : existing.official_mail,
+                department_id: Object.prototype.hasOwnProperty.call(req.validatedBody || {}, 'department_id')
+                    ? req.validatedBody.department_id
+                    : existing.department_id,
+            };
+
+            const teacher = await this.teacherModel.updateTeacher(userId, mergedPayload);
             if (!teacher) {
                 return res.status(404).json({ message: "Teacher not found" });
             }
@@ -772,7 +814,8 @@ class TeacherController {
 
     deleteTeacher = async (req, res) => {
         try {
-            const teacher = await this.teacherModel.deleteTeacher(req.params.user_id);
+            const userId = Number(req.validatedParams?.user_id || req.params.user_id);
+            const teacher = await this.teacherModel.deleteTeacher(userId);
             if (!teacher) {
                 return res.status(404).json({ message: "Teacher not found" });
             }

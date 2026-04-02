@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { readAuthSession } from '../../utils/authStorage';
 import { formatDateDisplay } from '../../utils/dateFormat';
+import { normalizeBdPhone, validateBdPhone } from '../../utils/validators';
 
 const PAYMENT_METHODS = ['Mobile Banking', 'Bank Transfer'];
 
@@ -122,9 +123,14 @@ const DuesStatusSection = () => {
       return;
     }
 
-    if (form.payment_method === 'Mobile Banking' && !String(form.mobile_banking_number || '').trim()) {
-      setMessage({ type: 'error', text: 'Mobile banking number is required for Mobile Banking.' });
-      return;
+    let normalizedBankingNumber = null;
+    if (form.payment_method === 'Mobile Banking') {
+      const numberError = validateBdPhone(form.mobile_banking_number, 'Mobile banking number', true);
+      if (numberError) {
+        setMessage({ type: 'error', text: numberError });
+        return;
+      }
+      normalizedBankingNumber = normalizeBdPhone(form.mobile_banking_number);
     }
 
     setSubmittingDueId(dueId);
@@ -135,8 +141,7 @@ const DuesStatusSection = () => {
         student_due_payment_id: dueId,
         requested_amount: requestedAmount,
         payment_method: form.payment_method,
-        mobile_banking_number:
-          form.payment_method === 'Mobile Banking' ? form.mobile_banking_number : null,
+        mobile_banking_number: normalizedBankingNumber,
         note: form.note || null,
       });
 

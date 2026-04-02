@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Lock, Mail } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { normalizeEmail, validateEmail } from '../utils/validators';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -14,10 +15,22 @@ const Login = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+
+    const normalizedEmail = normalizeEmail(email);
+    const emailError = validateEmail(normalizedEmail);
+    if (emailError) {
+      setError(emailError);
+      return;
+    }
+
+    if (!String(password || '').trim()) {
+      setError('Password is required.');
+      return;
+    }
     
     try {
       const response = await api.post('/users/login', {
-        email,
+        email: normalizedEmail,
         password,
       });
 

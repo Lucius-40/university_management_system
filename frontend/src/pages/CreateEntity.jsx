@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { sortTermsDepartment } from "../utils/termSort";
+import {
+  firstValidationError,
+  sanitizeStudentCreateForm,
+  sanitizeTeacherCreateForm,
+  validateStudentCreateForm,
+  validateTeacherCreateForm,
+} from "../utils/validators";
 import ModeToggle from "./createEntity/ModeToggle";
 import TeacherSection from "./createEntity/TeacherSection";
 import StudentSection from "./createEntity/StudentSection";
@@ -658,16 +665,26 @@ const CreateEntity = ({ initialTab = "student" }) => {
     event.preventDefault();
     setMessage({ type: "", text: "" });
 
+    const normalizedForm = sanitizeTeacherCreateForm(teacherForm);
+    const validationErrors = validateTeacherCreateForm(normalizedForm);
+    if (Object.keys(validationErrors).length > 0) {
+      setMessage({
+        type: "error",
+        text: firstValidationError(validationErrors) || "Please fix invalid teacher fields.",
+      });
+      return;
+    }
+
     try {
-      const defaultPassword = `${teacherForm.email.split("@")[0]}@Univ2026`;
+      const defaultPassword = `${normalizedForm.email.split("@")[0]}@Univ2026`;
 
       const userResponse = await api.post("/users/register", {
-        name: teacherForm.name,
-        email: teacherForm.email,
-        mobile_number: teacherForm.mobile_number,
-        present_address: teacherForm.present_address,
-        permanent_address: teacherForm.permanent_address,
-        birth_date: teacherForm.birth_date,
+        name: normalizedForm.name,
+        email: normalizedForm.email,
+        mobile_number: normalizedForm.mobile_number,
+        present_address: normalizedForm.present_address,
+        permanent_address: normalizedForm.permanent_address,
+        birth_date: normalizedForm.birth_date,
         password: defaultPassword,
         role: "teacher",
       });
@@ -676,9 +693,9 @@ const CreateEntity = ({ initialTab = "student" }) => {
 
       await api.post("/teachers", {
         user_id: userId,
-        appointment: teacherForm.appointment,
-        official_mail: teacherForm.official_mail,
-        department_id: Number(teacherForm.department_id),
+        appointment: normalizedForm.appointment,
+        official_mail: normalizedForm.official_mail,
+        department_id: normalizedForm.department_id,
       });
 
       setMessage({
@@ -696,9 +713,12 @@ const CreateEntity = ({ initialTab = "student" }) => {
         official_mail: "",
       }));
     } catch (error) {
+      const backendErrors = error.response?.data?.errors;
+      const backendErrorMessage = backendErrors ? firstValidationError(backendErrors) : "";
       setMessage({
         type: "error",
         text:
+          backendErrorMessage ||
           error.response?.data?.message ||
           error.response?.data?.error ||
           "Failed to create teacher",
@@ -710,16 +730,26 @@ const CreateEntity = ({ initialTab = "student" }) => {
     event.preventDefault();
     setMessage({ type: "", text: "" });
 
+    const normalizedForm = sanitizeStudentCreateForm(studentForm);
+    const validationErrors = validateStudentCreateForm(normalizedForm);
+    if (Object.keys(validationErrors).length > 0) {
+      setMessage({
+        type: "error",
+        text: firstValidationError(validationErrors) || "Please fix invalid student fields.",
+      });
+      return;
+    }
+
     try {
-      const defaultPassword = `${studentForm.roll_number}@Univ2026`;
+      const defaultPassword = `${normalizedForm.roll_number}@Univ2026`;
 
       const userResponse = await api.post("/users/register", {
-        name: studentForm.name,
-        email: studentForm.email,
-        mobile_number: studentForm.mobile_number,
-        present_address: studentForm.present_address,
-        permanent_address: studentForm.permanent_address,
-        birth_date: studentForm.birth_date,
+        name: normalizedForm.name,
+        email: normalizedForm.email,
+        mobile_number: normalizedForm.mobile_number,
+        present_address: normalizedForm.present_address,
+        permanent_address: normalizedForm.permanent_address,
+        birth_date: normalizedForm.birth_date,
         password: defaultPassword,
         role: "student",
       });
@@ -728,9 +758,9 @@ const CreateEntity = ({ initialTab = "student" }) => {
 
       await api.post("/students", {
         user_id: userId,
-        roll_number: studentForm.roll_number,
-        official_mail: studentForm.official_mail,
-        current_term: studentForm.current_term ? Number(studentForm.current_term) : null,
+        roll_number: normalizedForm.roll_number,
+        official_mail: normalizedForm.official_mail,
+        current_term: normalizedForm.current_term,
       });
 
       setMessage({
@@ -751,9 +781,12 @@ const CreateEntity = ({ initialTab = "student" }) => {
         current_term: "",
       });
     } catch (error) {
+      const backendErrors = error.response?.data?.errors;
+      const backendErrorMessage = backendErrors ? firstValidationError(backendErrors) : "";
       setMessage({
         type: "error",
         text:
+          backendErrorMessage ||
           error.response?.data?.message ||
           error.response?.data?.error ||
           "Failed to create student",

@@ -43,7 +43,8 @@ class UserController {
 
     registerUser = async (req, res) => {
         try {
-            const { name, email, password, role, ...otherDetails } = req.body;
+            const payload = req.validatedBody || req.body || {};
+            const { name, email, password, role, ...otherDetails } = payload;
 
             const existingUser = await this.userModel.getUserByEmail(email);
             if (existingUser) {
@@ -233,10 +234,7 @@ class UserController {
 
     updateUserProfile = async (req, res) => {
         try {
-            const requestedId = Number(req.params.id);
-            if (!Number.isInteger(requestedId) || requestedId <= 0) {
-                return res.status(400).json({ message: "Invalid user id." });
-            }
+            const requestedId = Number(req.validatedParams?.id || req.params.id);
 
             const requester = req.user;
             if (!this.canManageUser(requester, requestedId)) {
@@ -267,8 +265,8 @@ class UserController {
 
             const mergedPayload = { id: requestedId };
             for (const field of allowedFields) {
-                if (Object.prototype.hasOwnProperty.call(req.body, field)) {
-                    mergedPayload[field] = req.body[field];
+                if (Object.prototype.hasOwnProperty.call(req.validatedBody || {}, field)) {
+                    mergedPayload[field] = req.validatedBody[field];
                 } else {
                     mergedPayload[field] = existingUser[field] ?? null;
                 }
@@ -304,10 +302,7 @@ class UserController {
 
     resetPassword = async (req, res) => {
         try {
-            const requestedId = Number(req.params.id);
-            if (!Number.isInteger(requestedId) || requestedId <= 0) {
-                return res.status(400).json({ message: "Invalid user id." });
-            }
+            const requestedId = Number(req.validatedParams?.id || req.params.id);
 
             const requester = req.user;
             const isSystemOrAdmin = this.isSystemOrAdminRole(requester?.role);
@@ -375,10 +370,7 @@ class UserController {
 
     uploadProfileImage = async (req, res) => {
         try {
-            const requestedId = Number(req.params.id);
-            if (!Number.isInteger(requestedId) || requestedId <= 0) {
-                return res.status(400).json({ message: 'Invalid user id.' });
-            }
+            const requestedId = Number(req.validatedParams?.id || req.params.id);
 
             if (!this.canManageUser(req.user, requestedId)) {
                 return res.status(403).json({ message: 'You are not allowed to update this profile image.' });
@@ -448,10 +440,7 @@ class UserController {
 
     deleteProfileImage = async (req, res) => {
         try {
-            const requestedId = Number(req.params.id);
-            if (!Number.isInteger(requestedId) || requestedId <= 0) {
-                return res.status(400).json({ message: 'Invalid user id.' });
-            }
+            const requestedId = Number(req.validatedParams?.id || req.params.id);
 
             if (!this.canManageUser(req.user, requestedId)) {
                 return res.status(403).json({ message: 'You are not allowed to remove this profile image.' });

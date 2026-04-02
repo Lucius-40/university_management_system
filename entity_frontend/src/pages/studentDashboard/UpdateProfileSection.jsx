@@ -3,6 +3,7 @@ import api from "../../services/api";
 import Loader from "../../components/Loader";
 import { useAuth } from "../../context/AuthContext";
 import { readAuthSession } from "../../utils/authStorage";
+import { sanitizeProfileForm, validateProfileForm } from "../../utils/validators";
 
 const FIELD_CONFIG = [
   { name: "name", label: "Name", type: "text", required: true },
@@ -71,43 +72,17 @@ const mapSourceToForm = (source) => {
 };
 
 const toPayload = (form) => {
-  return FIELD_CONFIG.reduce((acc, field) => {
+  const basePayload = FIELD_CONFIG.reduce((acc, field) => {
     const rawValue = form[field.name] ?? "";
-    const normalized = typeof rawValue === "string" ? rawValue.trim() : rawValue;
-
-    if (NULLABLE_FIELDS.has(field.name) && normalized === "") {
-      acc[field.name] = null;
-      return acc;
-    }
-
-    acc[field.name] = normalized;
+    acc[field.name] = typeof rawValue === "string" ? rawValue : rawValue;
     return acc;
   }, {});
+
+  return sanitizeProfileForm(basePayload, NULLABLE_FIELDS);
 };
 
 const validateForm = (form) => {
-  const errors = {};
-
-  FIELD_CONFIG.forEach((field) => {
-    if (!REQUIRED_FIELDS.has(field.name)) return;
-    if (!String(form[field.name] ?? "").trim()) {
-      errors[field.name] = `${field.label} is required.`;
-    }
-  });
-
-  if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-    errors.email = "Please enter a valid email address.";
-  }
-
-  const hasNid = Boolean(String(form.nid_number ?? "").trim());
-  const hasPassport = Boolean(String(form.passport_number ?? "").trim());
-  if (!hasNid && !hasPassport) {
-    const msg = "Provide at least one of NID Number or Passport Number.";
-    errors.nid_number = msg;
-    errors.passport_number = msg;
-  }
-
-  return errors;
+  return validateProfileForm(form, REQUIRED_FIELDS);
 };
 
 const UpdateProfileSection = () => {
@@ -308,6 +283,10 @@ const UpdateProfileSection = () => {
         });
       }
     } catch (error) {
+      const backendErrors = error.response?.data?.errors;
+      if (backendErrors && typeof backendErrors === "object") {
+        setErrors(backendErrors);
+      }
       const errorText = error.response?.data?.message || error.response?.data?.error || "Failed to update profile.";
       setMessage({ type: "error", text: errorText });
     } finally {
