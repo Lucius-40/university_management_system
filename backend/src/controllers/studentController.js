@@ -4,6 +4,12 @@ const CourseModel = require('../models/courseModel.js');
 const SectionModel = require('../models/sectionModel.js');
 const DB_Connection = require('../database/db.js');
 const bcrypt = require('bcryptjs');
+const {
+    validateAddressField,
+    validateEmailField,
+    validateNameField,
+    validatePhoneField,
+} = require('../utils/inputValidation');
 
 class StudentController {
     constructor() {
@@ -16,7 +22,7 @@ class StudentController {
 
     createStudent = async (req, res) => {
         try {
-            const student = await this.studentModel.createStudent(req.body);
+            const student = await this.studentModel.createStudent(req.validatedBody || req.body);
             res.status(201).json(student);
         } catch (error) {
             console.error("Create Student error:", error);
@@ -125,6 +131,23 @@ class StudentController {
                         row: rowNumber,
                         status: "failed",
                         reason: `Validation failed: ${missing.join(", ")}`,
+                    });
+                    continue;
+                }
+
+                const formatErrors = {};
+                validateNameField(formatErrors, 'full_name', full_name, true);
+                validateEmailField(formatErrors, 'email', email, true);
+                validateEmailField(formatErrors, 'official_mail', official_mail, true);
+                validatePhoneField(formatErrors, 'mobile_number', mobile_number, true);
+                validateAddressField(formatErrors, 'present_address', present_address, true);
+                validateAddressField(formatErrors, 'permanent_address', permanent_address, true);
+
+                if (Object.keys(formatErrors).length > 0) {
+                    results.push({
+                        row: rowNumber,
+                        status: 'failed',
+                        reason: `Validation failed: ${Object.values(formatErrors).join(', ')}`,
                     });
                     continue;
                 }
@@ -431,7 +454,8 @@ class StudentController {
 
     getStudentByUserId = async (req, res) => {
         try {
-            const student = await this.studentModel.getStudentByUserId(req.params.user_id);
+            const userId = Number(req.validatedParams?.user_id || req.params.user_id);
+            const student = await this.studentModel.getStudentByUserId(userId);
             if (!student) {
                 return res.status(404).json({ message: "Student not found" });
             }
@@ -457,7 +481,28 @@ class StudentController {
 
     updateStudent = async (req, res) => {
         try {
-            const student = await this.studentModel.updateStudent(req.params.user_id, req.body);
+            const userId = Number(req.validatedParams?.user_id || req.params.user_id);
+            const existing = await this.studentModel.getStudentByUserId(userId);
+            if (!existing) {
+                return res.status(404).json({ message: "Student not found" });
+            }
+
+            const mergedPayload = {
+                roll_number: Object.prototype.hasOwnProperty.call(req.validatedBody || {}, 'roll_number')
+                    ? req.validatedBody.roll_number
+                    : existing.roll_number,
+                official_mail: Object.prototype.hasOwnProperty.call(req.validatedBody || {}, 'official_mail')
+                    ? req.validatedBody.official_mail
+                    : existing.official_mail,
+                status: Object.prototype.hasOwnProperty.call(req.validatedBody || {}, 'status')
+                    ? req.validatedBody.status
+                    : existing.status,
+                current_term: Object.prototype.hasOwnProperty.call(req.validatedBody || {}, 'current_term')
+                    ? req.validatedBody.current_term
+                    : existing.current_term,
+            };
+
+            const student = await this.studentModel.updateStudent(userId, mergedPayload);
             if (!student) {
                 return res.status(404).json({ message: "Student not found" });
             }
@@ -470,7 +515,8 @@ class StudentController {
 
     deleteStudent = async (req, res) => {
         try {
-            const student = await this.studentModel.deleteStudent(req.params.user_id);
+            const userId = Number(req.validatedParams?.user_id || req.params.user_id);
+            const student = await this.studentModel.deleteStudent(userId);
             if (!student) {
                 return res.status(404).json({ message: "Student not found" });
             }
@@ -486,7 +532,7 @@ class StudentController {
         const client = await this.db.pool.connect();
         
         try {
-            const student_id = parseInt(req.params.user_id);
+            const student_id = Number(req.validatedParams?.user_id || req.params.user_id);
             const { term_number, section_name, course_offering_ids } = req.body;
             const normalizedSectionName = typeof section_name === 'string' ? section_name.trim() : '';
 
