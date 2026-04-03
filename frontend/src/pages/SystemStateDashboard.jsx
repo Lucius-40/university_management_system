@@ -149,7 +149,7 @@ const SystemStateDashboard = () => {
       setImpactPreview(null);
       setMessage({
         type: "success",
-        text: `Session ended. Promoted: ${summary.promoted_count || 0}, Graduated: ${summary.graduated_count || 0}, Failed: ${summary.failed_count || 0}.`,
+        text: `Session ended. Promoted: ${summary.promoted_count || 0}, Graduated: ${summary.graduated_count || 0}, Retained (Term 8 credit shortfall): ${summary.retained_terminal_term_count || 0}, Skipped: ${summary.skipped_count || 0}.`,
       });
 
       await fetchState();
@@ -383,12 +383,18 @@ const SystemStateDashboard = () => {
                 <p className="mt-1 text-base font-semibold text-indigo-700">{sessionResult.summary.graduated_count || 0}</p>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Failed/Skipped</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Retained/Skipped</p>
                 <p className="mt-1 text-base font-semibold text-rose-700">
-                  {(sessionResult.summary.failed_count || 0) + (sessionResult.summary.skipped_count || 0)}
+                  {(sessionResult.summary.retained_terminal_term_count || 0) + (sessionResult.summary.skipped_count || 0)}
                 </p>
               </div>
             </div>
+
+            {Array.isArray(sessionResult.student_outcomes) && sessionResult.student_outcomes.length === 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                No student outcomes were generated. Check that students have enrollments in the ended term window.
+              </div>
+            )}
 
             {Array.isArray(sessionResult.student_outcomes) && sessionResult.student_outcomes.length > 0 && (
               <div className="rounded-lg border border-slate-200">
@@ -474,8 +480,16 @@ const SystemStateDashboard = () => {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quality Notes</p>
                   <p className="mt-1 text-slate-800">Terms processed: <span className="font-semibold">{impactPreview.summary?.terms_processed || 0}</span></p>
                   <p className="text-slate-800">Missing grade to default F: <span className="font-semibold">{impactPreview.summary?.enrollments_missing_grade_to_f || 0}</span></p>
+                  <p className="text-slate-800">Retained in term 8: <span className="font-semibold">{impactPreview.summary?.students_retained_terminal_term || 0}</span></p>
                 </div>
               </div>
+
+              {impactPreview.advisory_note && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                  <p className="font-semibold">Preview note</p>
+                  <p className="mt-1">{impactPreview.advisory_note}</p>
+                </div>
+              )}
 
               {impactPreview.can_execute === false && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -493,6 +507,22 @@ const SystemStateDashboard = () => {
                     {impactPreview.eligible_next_term_targets.map((item) => (
                       <div key={`target-term-${item.term_id}`} className="flex items-center justify-between border-b border-slate-100 py-1 last:border-b-0">
                         <span>Term ID {item.term_id}</span>
+                        <span className="font-semibold">{item.student_count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {Array.isArray(impactPreview.ineligible_reason_breakdown) && impactPreview.ineligible_reason_breakdown.length > 0 && (
+                <div className="rounded-lg border border-slate-200">
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Ineligible Reason Breakdown</h4>
+                  </div>
+                  <div className="max-h-36 overflow-auto px-4 py-3 text-sm text-slate-700">
+                    {impactPreview.ineligible_reason_breakdown.map((item) => (
+                      <div key={`reason-${item.reason}`} className="flex items-center justify-between border-b border-slate-100 py-1 last:border-b-0">
+                        <span>{item.reason}</span>
                         <span className="font-semibold">{item.student_count}</span>
                       </div>
                     ))}
