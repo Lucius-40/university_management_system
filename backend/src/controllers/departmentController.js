@@ -5,8 +5,24 @@ class DepartmentController {
         this.departmentModel = new DepartmentModel();
     }
 
+    validateRequiredCredits = (req, res) => {
+        if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'required_total_credits')) {
+            return true;
+        }
+
+        const requiredCredits = Number(req.body.required_total_credits);
+        if (!Number.isFinite(requiredCredits) || requiredCredits <= 0) {
+            res.status(400).json({ error: 'required_total_credits must be a positive number.' });
+            return false;
+        }
+
+        req.body.required_total_credits = requiredCredits;
+        return true;
+    }
+
     createDepartment = async (req, res) => {
         try {
+            if (!this.validateRequiredCredits(req, res)) return;
             const department = await this.departmentModel.createDepartment(req.body);
             res.status(201).json(department);
         } catch (error) {
@@ -40,6 +56,7 @@ class DepartmentController {
 
     updateDepartment = async (req, res) => {
         try {
+            if (!this.validateRequiredCredits(req, res)) return;
             const department = await this.departmentModel.updateDepartment(req.params.id, req.body);
             if (!department) {
                 return res.status(404).json({ message: "Department not found" });

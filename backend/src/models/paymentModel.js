@@ -666,6 +666,9 @@ class PaymentModel {
                     d.name AS due_name,
                     d.amount AS due_amount,
                     d.bank_account_number,
+                    s.current_term AS student_current_term_id,
+                    current_term.term_number AS student_current_term_number,
+                    due_term.term_number AS due_term_number,
                     COALESCE(sdp.amount_due_override, d.amount) AS effective_due_amount,
                     GREATEST(COALESCE(sdp.amount_due_override, d.amount) - COALESCE(sdp.amount_paid, 0), 0) AS outstanding_amount,
                     (
@@ -679,7 +682,10 @@ class PaymentModel {
                     latest_request.requested_amount AS latest_requested_amount,
                     latest_request.created_at AS latest_request_created_at
                 FROM student_dues_payment sdp
+                JOIN students s ON s.user_id = sdp.student_id
                 JOIN dues d ON d.id = sdp.due_id
+                LEFT JOIN terms current_term ON current_term.id = s.current_term
+                LEFT JOIN terms due_term ON due_term.id = sdp.term_id
                 LEFT JOIN LATERAL (
                     SELECT
                         pr.id,
@@ -692,6 +698,7 @@ class PaymentModel {
                     LIMIT 1
                 ) latest_request ON TRUE
                 WHERE sdp.student_id = $1
+                  AND (sdp.term_id IS NULL OR sdp.term_id = s.current_term)
                 ORDER BY
                     (COALESCE(sdp.required_for_registration, d.required_for_registration, TRUE) = TRUE
                         AND COALESCE(d.is_active, TRUE) = TRUE
