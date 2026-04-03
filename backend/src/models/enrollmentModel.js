@@ -174,6 +174,25 @@ class EnrollmentModel {
         );
     }
 
+    hasArchivedEnrollmentInTerm = (student_id, term_id) => {
+        return this.db.run(
+            'has_archived_enrollment_in_term',
+            async () => {
+                const query = `
+                    SELECT 1
+                    FROM student_enrollments se
+                    JOIN course_offerings co ON co.id = se.course_offering_id
+                    WHERE se.student_id = $1
+                      AND co.term_id = $2
+                      AND se.status = 'Archived'
+                    LIMIT 1;
+                `;
+                const result = await this.db.query_executor(query, [student_id, term_id]);
+                return result.rows.length > 0;
+            }
+        );
+    }
+
     updateEnrollmentStatus = (enrollment_id, status, approved_by_teacher_id = null) => {
         return this.db.run(
             'update_enrollment_status',
@@ -520,6 +539,28 @@ class EnrollmentModel {
                         }
                 );
         }
+
+    getMostRecentEnrolledTermId = (student_id) => {
+        return this.db.run(
+            'get_most_recent_enrolled_term_id',
+            async () => {
+                const query = `
+                    SELECT co.term_id
+                    FROM student_enrollments se
+                    JOIN course_offerings co ON co.id = se.course_offering_id
+                    JOIN terms t ON t.id = co.term_id
+                    WHERE se.student_id = $1
+                      AND se.status = 'Enrolled'
+                    GROUP BY co.term_id, t.term_number, t.start_date
+                    ORDER BY t.term_number DESC, t.start_date DESC, co.term_id DESC
+                    LIMIT 1;
+                `;
+
+                const result = await this.db.query_executor(query, [student_id]);
+                return result.rows[0]?.term_id || null;
+            }
+        );
+    }
 }
 
 module.exports = EnrollmentModel;

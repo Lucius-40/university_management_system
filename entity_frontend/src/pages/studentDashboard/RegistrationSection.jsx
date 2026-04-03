@@ -302,12 +302,22 @@ const RegistrationSection = () => {
 
       {!isLoadingEligibility && eligibility && eligibility.registration_open && !eligibility.eligible ? (
         <div className="bg-orange-50 border border-orange-300 rounded-lg p-6 space-y-2 text-orange-900">
-          <h2 className="text-xl font-semibold">You are not eligible for registration yet</h2>
+          <h2 className="text-xl font-semibold">
+            {eligibility.previous_term_requirement_met === false
+              ? 'Not eligible for this term'
+              : 'You are not eligible for registration yet'}
+          </h2>
           <p className="text-sm">Please resolve the following blockers:</p>
           <ul className="list-disc pl-5 text-sm space-y-1">
             {!eligibility.student_active ? <li>Student status is not Active.</li> : null}
             {!eligibility.department ? <li>No department assigned.</li> : null}
             {!eligibility.term ? <li>No matching term found for this term number.</li> : null}
+            {eligibility.previous_term_requirement_met === false ? (
+              <li>
+                Not eligible for this term. You need at least one archived course in term{' '}
+                {eligibility.required_previous_term_number ?? '-'}.
+              </li>
+            ) : null}
             {eligibility.has_overdue_dues ? <li>There are unpaid required dues.</li> : null}
           </ul>
         </div>

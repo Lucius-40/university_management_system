@@ -661,6 +661,43 @@ class StudentController {
 
             const term = termResult.rows[0];
 
+            let previousTermRequirementMet = true;
+            let requiredPreviousTermNumber = null;
+            if (Number(term_number) > 1) {
+                requiredPreviousTermNumber = Number(term_number) - 1;
+                const previousTermQuery = `
+                    SELECT id
+                    FROM terms
+                    WHERE term_number = $1
+                      AND department_id = $2
+                    ORDER BY start_date DESC
+                    LIMIT 1;
+                `;
+                const previousTermResult = await client.query(previousTermQuery, [
+                    requiredPreviousTermNumber,
+                    studentDept.department_id,
+                ]);
+
+                const previousTerm = previousTermResult.rows[0] || null;
+                if (!previousTerm) {
+                    previousTermRequirementMet = false;
+                } else {
+                    previousTermRequirementMet = await this.enrollmentModel.hasArchivedEnrollmentInTerm(
+                        student_id,
+                        Number(previousTerm.id)
+                    );
+                }
+            }
+
+            if (!previousTermRequirementMet) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'Not eligible for this term. You must have at least one archived course in the previous term before registering for the next term.',
+                    previous_term_requirement_met: false,
+                    required_previous_term_number: requiredPreviousTermNumber,
+                });
+            }
+
             // 5. Check required blocking dues for the target term
             const blockingDues = await this.studentModel.getBlockingDuesForRegistration(student_id, term.id);
             if (blockingDues.length > 0) {
@@ -1037,6 +1074,34 @@ class StudentController {
                 }
             }
 
+            let previousTermRequirementMet = true;
+            let requiredPreviousTermNumber = null;
+            if (term && Number(term_number) > 1) {
+                requiredPreviousTermNumber = Number(term_number) - 1;
+                const previousTermQuery = `
+                    SELECT id
+                    FROM terms
+                    WHERE term_number = $1
+                      AND department_id = $2
+                    ORDER BY start_date DESC
+                    LIMIT 1;
+                `;
+                const previousTermResult = await this.db.query_executor(previousTermQuery, [
+                    requiredPreviousTermNumber,
+                    studentDept.department_id,
+                ]);
+
+                const previousTerm = previousTermResult.rows[0] || null;
+                if (!previousTerm) {
+                    previousTermRequirementMet = false;
+                } else {
+                    previousTermRequirementMet = await this.enrollmentModel.hasArchivedEnrollmentInTerm(
+                        student_id,
+                        Number(previousTerm.id)
+                    );
+                }
+            }
+
             // Check dues (required dues for this term only)
             const blockingDues = term
                 ? await this.studentModel.getBlockingDuesForRegistration(student_id, term.id)
@@ -1061,7 +1126,8 @@ class StudentController {
                            student.status === 'Active' && 
                            blockingDues.length === 0 &&
                            !!studentDept.department_id &&
-                           !!term;
+                           !!term &&
+                           previousTermRequirementMet;
 
             res.status(200).json({
                 eligible,
@@ -1081,6 +1147,8 @@ class StudentController {
                     end_date: term.end_date,
                     max_credit: Number(term.max_credit || 23),
                 } : null,
+                previous_term_requirement_met: previousTermRequirementMet,
+                required_previous_term_number: requiredPreviousTermNumber,
                 overdue_dues: blockingDues,
                 has_overdue_dues: blockingDues.length > 0,
                 advisor: advisor ? {
@@ -1173,11 +1241,45 @@ class StudentController {
                 });
             }
 
-            const [enrollmentRows, termResultRows, currentCreditsRaw] = await Promise.all([
-                this.enrollmentModel.getStudentCoursesForTermWithTeacher(student_id, termId),
-                this.enrollmentModel.getStudentTermResults(student_id, termId),
-                this.enrollmentModel.getTotalCreditsForTerm(student_id, termId),
+            let selectedTermId = termId;
+            let selectedTermNumber = Number(context.term_number);
+            let selectedTermStartDate = context.term_start_date;
+            let selectedTermEndDate = context.term_end_date;
+            let selectedMaxCredit = maxCredit;
+
+            let [enrollmentRows, termResultRows, currentCreditsRaw] = await Promise.all([
+                this.enrollmentModel.getStudentCoursesForTermWithTeacher(student_id, selectedTermId),
+                this.enrollmentModel.getStudentTermResults(student_id, selectedTermId),
+                this.enrollmentModel.getTotalCreditsForTerm(student_id, selectedTermId),
             ]);
+
+            if ((enrollmentRows || []).length === 0) {
+                const fallbackTermId = Number(await this.enrollmentModel.getMostRecentEnrolledTermId(student_id));
+                if (Number.isInteger(fallbackTermId) && fallbackTermId > 0 && fallbackTermId !== selectedTermId) {
+                    const fallbackTermQuery = `
+                        SELECT id, term_number, start_date, end_date, max_credit
+                        FROM terms
+                        WHERE id = $1
+                        LIMIT 1;
+                    `;
+                    const fallbackTermResult = await this.db.query_executor(fallbackTermQuery, [fallbackTermId]);
+                    const fallbackTerm = fallbackTermResult.rows[0] || null;
+
+                    if (fallbackTerm) {
+                        selectedTermId = Number(fallbackTerm.id);
+                        selectedTermNumber = Number(fallbackTerm.term_number);
+                        selectedTermStartDate = fallbackTerm.start_date;
+                        selectedTermEndDate = fallbackTerm.end_date;
+                        selectedMaxCredit = toNumber(fallbackTerm.max_credit, 23);
+
+                        [enrollmentRows, termResultRows, currentCreditsRaw] = await Promise.all([
+                            this.enrollmentModel.getStudentCoursesForTermWithTeacher(student_id, selectedTermId),
+                            this.enrollmentModel.getStudentTermResults(student_id, selectedTermId),
+                            this.enrollmentModel.getTotalCreditsForTerm(student_id, selectedTermId),
+                        ]);
+                    }
+                }
+            }
 
             const enrollmentIds = (Array.isArray(enrollmentRows) ? enrollmentRows : [])
                 .map((row) => Number(row.enrollment_id))
@@ -1281,7 +1383,7 @@ class StudentController {
                 }));
 
             const currentCredits = toNumber(currentCreditsRaw, 0);
-            const remainingCredits = Number((maxCredit - currentCredits).toFixed(1));
+            const remainingCredits = Number((selectedMaxCredit - currentCredits).toFixed(1));
 
             return res.status(200).json({
                 student: {
@@ -1295,10 +1397,10 @@ class StudentController {
                 },
                 academic_overview: {
                     term: {
-                        id: termId,
-                        term_number: Number(context.term_number),
-                        start_date: context.term_start_date,
-                        end_date: context.term_end_date,
+                        id: selectedTermId,
+                        term_number: selectedTermNumber,
+                        start_date: selectedTermStartDate,
+                        end_date: selectedTermEndDate,
                     },
                     department: context.department_id
                         ? {
@@ -1317,7 +1419,7 @@ class StudentController {
                         : null,
                     credits: {
                         current: currentCredits,
-                        limit: maxCredit,
+                            limit: selectedMaxCredit,
                         remaining: remainingCredits,
                     },
                 },
