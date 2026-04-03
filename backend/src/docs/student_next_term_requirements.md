@@ -16,13 +16,14 @@ Only students in those ended terms are evaluated for progression.
 
 ## 2. What Must Already Be True (Previous Requirements)
 
-For a student to proceed to the next term, all of the following must be true:
+For a student to be considered by the session-end progression flow, all of the following must be true:
 
 1. The student current term is inside the ended session window.
 2. The student has at least one enrolled course in that term.
-3. Every enrolled course in that term has a passing grade.
-4. The student is not already in the terminal term.
-5. The next term (current term number + 1) exists for the same department.
+3. The student has pending/enrolled rows in ended terms (pending rows are auto-approved before evaluation).
+
+For non-terminal terms (1-7), students are promoted to next term even if they failed one or more courses.
+Failed courses are expected to be handled through retake registration in future terms.
 
 ## 3. Passing Grade Definition
 
@@ -36,6 +37,11 @@ A course is treated as passed only if grade is one of:
 
 Anything else is non-passing.
 
+Passing grade is still used for:
+- retake eligibility logic,
+- credit accumulation toward graduation,
+- reporting outcomes.
+
 ## 4. Important Backend Behaviors Before Evaluation
 
 Before progression is evaluated, the backend does this:
@@ -46,23 +52,39 @@ Before progression is evaluated, the backend does this:
 
 Meaning: if marks are missing or incomplete by session end, that enrollment can become F and block progression.
 
-## 5. Terminal Term Rule
+Under the current policy, this does not block non-terminal promotion. It does affect:
+- whether the course becomes a retake path,
+- whether terminal-term credit requirements are met.
+
+## 5. Terminal Term Rule (Credit-Based)
 
 Terminal term is term number 8.
 
-If a student in term 8 passes all enrolled courses in the ended session:
-- student is marked Graduated
-- student is not moved to term 9
+If a student in term 8 reaches required_total_credits for their department:
+- student is marked Graduated.
+
+If required_total_credits is not met:
+- student remains in term 8,
+- student is not graduated,
+- student can continue retake/improvement attempts to reach required credits.
+
+Credit counting policy:
+- unique passed courses count once (best attempt),
+- optional passed courses are included,
+- failed courses do not contribute.
 
 ## 6. Why A Student Might Not Progress
 
 Current reason codes used by backend include:
 
 - student_current_term_not_in_ended_window
-- no_enrolled_courses
-- one_or_more_courses_not_passed
+- no_enrolled_courses_in_current_term
 - current_term_number_missing
 - next_term_not_found
+- promoted_all_courses_passed
+- promoted_with_retake_path
+- credit_requirement_met
+- terminal_term_credit_shortfall
 
 ## 7. Practical Checklist For Students
 
@@ -70,8 +92,9 @@ Before session end, a student should ensure:
 
 1. They are enrolled in the intended courses for the current term.
 2. Their marks are entered and finalized in time.
-3. They achieve at least D in all enrolled courses.
-4. They are in the correct current term record for their department.
+3. They understand failed courses remain retake candidates after promotion.
+4. If they are in term 8, they should verify earned credits against department required_total_credits.
+5. They are in the correct current term record for their department.
 
 ## 8. Related Backend Source
 

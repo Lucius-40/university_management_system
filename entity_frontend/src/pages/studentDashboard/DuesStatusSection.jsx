@@ -223,6 +223,7 @@ const DuesStatusSection = () => {
               <thead className="bg-orange-100">
                 <tr>
                   <th className="p-3 text-left">Due</th>
+                  <th className="p-3 text-left">Term</th>
                   <th className="p-3 text-left">Due Date</th>
                   <th className="p-3 text-left">Required</th>
                   <th className="p-3 text-left">Remaining</th>
@@ -232,6 +233,11 @@ const DuesStatusSection = () => {
                 {blockingDues.map((row) => (
                   <tr key={`block-${row.id}`} className="border-t border-orange-200">
                     <td className="p-3 font-medium">{row.due_name}</td>
+                    <td className="p-3">
+                      {row.term_id
+                        ? `Term ${row.due_term_number || row.term_id}`
+                        : 'Global'}
+                    </td>
                     <td className="p-3">{formatDateDisplay(row.due_date || row.deadline)}</td>
                     <td className="p-3">Yes</td>
                     <td className="p-3 font-semibold">{formatMoney(row.outstanding_amount)}</td>
@@ -271,6 +277,13 @@ const DuesStatusSection = () => {
                   <div className="flex gap-2">
                     <span className="inline-block rounded bg-slate-100 text-slate-700 px-2 py-1 text-xs font-semibold">
                       Status: {row.status}
+                    </span>
+                    <span className="inline-block rounded bg-sky-100 text-sky-800 px-2 py-1 text-xs font-semibold">
+                      {row.term_id
+                        ? `Term ${row.due_term_number || row.term_id}${
+                            Number(row.term_id) === Number(row.student_current_term_id) ? ' (Current)' : ''
+                          }`
+                        : 'Global Due'}
                     </span>
                     {Boolean(row.is_blocking_registration) ? (
                       <span className="inline-block rounded bg-orange-100 text-orange-800 px-2 py-1 text-xs font-semibold">
