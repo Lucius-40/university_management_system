@@ -1,12 +1,132 @@
 const DB_Connection = require("../database/db.js");
 
 const PASSING_GRADES = new Set(['A+', 'A', 'A-', 'B', 'C', 'D']);
+const PASSING_GRADE_LIST = Array.from(PASSING_GRADES);
 const TERMINAL_TERM_NUMBER = 8;
+const DEFAULT_REQUIRED_TOTAL_CREDITS = 160.0;
 
 const toDateOnly = (value) => {
     if (!value) return null;
     if (value instanceof Date) return value.toISOString().slice(0, 10);
     return String(value).slice(0, 10);
+};
+
+const toSafeNumber = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const buildStudentCreditProgressMap = async (queryRunner, studentIds) => {
+    if (!Array.isArray(studentIds) || studentIds.length === 0) {
+        return new Map();
+    }
+
+    const result = await queryRunner(
+        `
+            SELECT
+                s.user_id AS student_id,
+                COALESCE(d.required_total_credits, $2::numeric) AS required_total_credits,
+                COALESCE(SUM(passed_courses.credit_hours), 0)::numeric(10, 2) AS earned_credits
+            FROM students s
+            LEFT JOIN terms current_term ON current_term.id = s.current_term
+            LEFT JOIN departments d ON d.id = current_term.department_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    co.course_id,
+                    MAX(COALESCE(se.credit_when_taking, c.credit_hours, 0)) AS credit_hours
+                FROM student_enrollments se
+                JOIN course_offerings co ON co.id = se.course_offering_id
+                JOIN courses c ON c.id = co.course_id
+                WHERE se.student_id = s.user_id
+                  AND se.status IN ('Enrolled', 'Archived')
+                  AND se.grade = ANY($1::text[])
+                  AND (current_term.department_id IS NULL OR c.department_id = current_term.department_id)
+                GROUP BY co.course_id
+            ) passed_courses ON TRUE
+            WHERE s.user_id = ANY($3::int[])
+            GROUP BY s.user_id, d.required_total_credits
+            ORDER BY s.user_id;
+        `,
+        [PASSING_GRADE_LIST, DEFAULT_REQUIRED_TOTAL_CREDITS, studentIds]
+    );
+
+    const creditProgress = new Map();
+    for (const row of result.rows || []) {
+        const studentId = Number(row.student_id);
+        if (!Number.isInteger(studentId)) {
+            continue;
+        }
+
+        const requiredCredits = toSafeNumber(row.required_total_credits, DEFAULT_REQUIRED_TOTAL_CREDITS);
+        const earnedCredits = toSafeNumber(row.earned_credits, 0);
+        const creditShortfall = Math.max(requiredCredits - earnedCredits, 0);
+
+        creditProgress.set(studentId, {
+            required_total_credits: requiredCredits,
+            earned_credits: earnedCredits,
+            credit_shortfall: creditShortfall,
+        });
+    }
+
+    return creditProgress;
+};
+
+const resolveTargetTermsForSession = async (queryRunner, sessionStart, sessionEnd) => {
+    const targetTermsResult = await queryRunner(
+        `
+            SELECT id, department_id, term_number, start_date, end_date
+            FROM terms
+            WHERE start_date = $1::date
+              AND end_date = $2::date
+            ORDER BY department_id, term_number, id;
+        `,
+        [sessionStart, sessionEnd]
+    );
+
+    const targetTerms = targetTermsResult.rows || [];
+    if (targetTerms.length > 0) {
+        return {
+            targetTerms,
+            source: 'session_window',
+            warning: null,
+            blockingReason: null,
+        };
+    }
+
+    const fallbackTermsResult = await queryRunner(
+        `
+            SELECT DISTINCT
+                t.id,
+                t.department_id,
+                t.term_number,
+                t.start_date,
+                t.end_date
+            FROM student_enrollments se
+            JOIN course_offerings co ON co.id = se.course_offering_id
+            JOIN students s ON s.user_id = se.student_id
+            JOIN terms t ON t.id = co.term_id
+            WHERE se.status IN ('Pending', 'Enrolled')
+              AND s.current_term = co.term_id
+            ORDER BY t.department_id, t.term_number, t.id;
+        `
+    );
+
+    const fallbackTerms = fallbackTermsResult.rows || [];
+    if (fallbackTerms.length > 0) {
+        return {
+            targetTerms: fallbackTerms,
+            source: 'current_term_enrollments',
+            warning: 'No terms matched the configured session window; using terms derived from current-term enrollments.',
+            blockingReason: null,
+        };
+    }
+
+    return {
+        targetTerms: [],
+        source: 'none',
+        warning: null,
+        blockingReason: 'No terms found that match current session start/end dates, and no current-term pending/enrolled enrollments were found.',
+    };
 };
 
 class SystemStateModel {
@@ -109,6 +229,33 @@ class SystemStateModel {
                     ALTER TABLE current_state
                     ADD CONSTRAINT current_state_session_end_status_chk
                     CHECK (session_end_status IN ('idle', 'running', 'completed', 'failed'));
+                END IF;
+            END $$;
+        `);
+
+        await runQuery(`
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_name = 'departments'
+                ) THEN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'departments' AND column_name = 'required_total_credits'
+                    ) THEN
+                        ALTER TABLE departments
+                        ADD COLUMN required_total_credits DECIMAL(5, 1) NOT NULL DEFAULT 160.0;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'departments_required_total_credits_positive_chk'
+                    ) THEN
+                        ALTER TABLE departments
+                        ADD CONSTRAINT departments_required_total_credits_positive_chk
+                        CHECK (required_total_credits > 0);
+                    END IF;
                 END IF;
             END $$;
         `);
@@ -314,6 +461,7 @@ class SystemStateModel {
                         students_considered: 0,
                         students_eligible_for_next_term: 0,
                         students_will_graduate: 0,
+                        students_retained_terminal_term: 0,
                         students_not_eligible: 0,
                         pending_to_auto_approve: 0,
                         enrollments_to_archive: 0,
@@ -335,6 +483,9 @@ class SystemStateModel {
                 && sessionEnd <= lastEndedEnd
             ) {
                 const previousSummary = state.session_end_summary || {};
+                const retainedTerminalCount = Number(previousSummary.retained_terminal_term_count || 0);
+                const skippedCount = Number(previousSummary.skipped_count || 0);
+                const legacyFailedCount = Number(previousSummary.failed_count || 0);
                 return {
                     message: 'Session-end impact preview generated.',
                     can_execute: false,
@@ -348,9 +499,8 @@ class SystemStateModel {
                         students_considered: Number(previousSummary.students_considered || 0),
                         students_eligible_for_next_term: Number(previousSummary.promoted_count || 0),
                         students_will_graduate: Number(previousSummary.graduated_count || 0),
-                        students_not_eligible: Number(
-                            (previousSummary.failed_count || 0) + (previousSummary.skipped_count || 0)
-                        ),
+                        students_not_eligible: retainedTerminalCount + skippedCount + legacyFailedCount,
+                        students_retained_terminal_term: retainedTerminalCount,
                         pending_to_auto_approve: Number(previousSummary.pending_auto_approved || 0),
                         enrollments_to_archive: Number(previousSummary.archived_enrollments || 0),
                         enrollments_missing_grade_to_f: Number(previousSummary.missing_marks_marked_as_f || 0),
@@ -361,23 +511,17 @@ class SystemStateModel {
                 };
             }
 
-            const targetTermsResult = await this.db.query_executor(
-                `
-                    SELECT id, department_id, term_number, start_date, end_date
-                    FROM terms
-                    WHERE start_date = $1::date
-                      AND end_date = $2::date
-                    ORDER BY department_id, term_number, id;
-                `,
-                [sessionStart, sessionEnd]
+            const targetTermResolution = await resolveTargetTermsForSession(
+                this.db.query_executor,
+                sessionStart,
+                sessionEnd
             );
-
-            const targetTerms = targetTermsResult.rows;
+            const targetTerms = targetTermResolution.targetTerms;
             if (targetTerms.length === 0) {
                 return {
                     message: 'Session-end impact preview generated.',
                     can_execute: false,
-                    blocking_reason: 'No terms found that match current session start/end dates.',
+                    blocking_reason: targetTermResolution.blockingReason,
                     session_window: {
                         term_start: sessionStart,
                         term_end: sessionEnd,
@@ -387,6 +531,7 @@ class SystemStateModel {
                         students_considered: 0,
                         students_eligible_for_next_term: 0,
                         students_will_graduate: 0,
+                        students_retained_terminal_term: 0,
                         students_not_eligible: 0,
                         pending_to_auto_approve: 0,
                         enrollments_to_archive: 0,
@@ -403,23 +548,13 @@ class SystemStateModel {
                 .filter((termId) => Number.isInteger(termId));
             const targetTermIdSet = new Set(targetTermIds);
 
-            const pendingCountResult = await this.db.query_executor(
-                `
-                    SELECT COUNT(*)::int AS total
-                    FROM student_enrollments se
-                    JOIN course_offerings co ON co.id = se.course_offering_id
-                    WHERE co.term_id = ANY($1::int[])
-                      AND se.status = 'Pending';
-                `,
-                [targetTermIds]
-            );
-
             const enrollmentsInWindowResult = await this.db.query_executor(
                 `
                     SELECT
                         se.id AS enrollment_id,
                         se.student_id,
                         co.term_id,
+                        se.status,
                         COALESCE(csr.grade, se.grade, 'F') AS effective_grade,
                         CASE
                             WHEN COALESCE(csr.grade, se.grade) IS NULL THEN TRUE
@@ -427,6 +562,7 @@ class SystemStateModel {
                         END AS will_be_default_f
                     FROM student_enrollments se
                     JOIN course_offerings co ON co.id = se.course_offering_id
+                    JOIN students s ON s.user_id = se.student_id
                     LEFT JOIN LATERAL (
                         SELECT csr_inner.grade
                         FROM compile_student_term_result(se.student_id, co.term_id) csr_inner
@@ -434,6 +570,7 @@ class SystemStateModel {
                         LIMIT 1
                     ) csr ON TRUE
                     WHERE co.term_id = ANY($1::int[])
+                      AND s.current_term = co.term_id
                       AND se.status IN ('Enrolled', 'Pending');
                 `,
                 [targetTermIds]
@@ -467,6 +604,10 @@ class SystemStateModel {
             const outcomes = [];
             const nextTermDistribution = new Map();
             const ineligibleReasonCount = new Map();
+            const creditProgressByStudent = await buildStudentCreditProgressMap(
+                this.db.query_executor,
+                candidateStudentIds
+            );
 
             if (candidateStudentIds.length > 0) {
                 const studentContextResult = await this.db.query_executor(
@@ -526,33 +667,19 @@ class SystemStateModel {
                     const stats = byStudentTerm.get(statKey) || { total_courses: 0, passed_courses: 0 };
                     const totalCourses = Number(stats.total_courses || 0);
                     const passedCourses = Number(stats.passed_courses || 0);
+                    const failedCourses = Math.max(totalCourses - passedCourses, 0);
 
                     if (totalCourses <= 0) {
                         outcomes.push({
                             student_id: studentId,
-                            outcome: 'failed',
-                            reason: 'no_enrolled_courses',
+                            outcome: 'skipped',
+                            reason: 'no_enrolled_courses_in_current_term',
                             from_term_id: currentTermId,
                             to_term_id: null,
                         });
                         ineligibleReasonCount.set(
-                            'no_enrolled_courses',
-                            (ineligibleReasonCount.get('no_enrolled_courses') || 0) + 1
-                        );
-                        continue;
-                    }
-
-                    if (passedCourses < totalCourses) {
-                        outcomes.push({
-                            student_id: studentId,
-                            outcome: 'failed',
-                            reason: 'one_or_more_courses_not_passed',
-                            from_term_id: currentTermId,
-                            to_term_id: null,
-                        });
-                        ineligibleReasonCount.set(
-                            'one_or_more_courses_not_passed',
-                            (ineligibleReasonCount.get('one_or_more_courses_not_passed') || 0) + 1
+                            'no_enrolled_courses_in_current_term',
+                            (ineligibleReasonCount.get('no_enrolled_courses_in_current_term') || 0) + 1
                         );
                         continue;
                     }
@@ -573,13 +700,41 @@ class SystemStateModel {
                     }
 
                     if (termNumber >= TERMINAL_TERM_NUMBER) {
+                        const creditProgress = creditProgressByStudent.get(studentId) || {
+                            required_total_credits: DEFAULT_REQUIRED_TOTAL_CREDITS,
+                            earned_credits: 0,
+                            credit_shortfall: DEFAULT_REQUIRED_TOTAL_CREDITS,
+                        };
+
+                        if (creditProgress.earned_credits >= creditProgress.required_total_credits) {
+                            outcomes.push({
+                                student_id: studentId,
+                                outcome: 'graduated',
+                                reason: 'credit_requirement_met',
+                                from_term_id: currentTermId,
+                                to_term_id: null,
+                                required_total_credits: creditProgress.required_total_credits,
+                                earned_credits: creditProgress.earned_credits,
+                                failed_course_count: failedCourses,
+                            });
+                            continue;
+                        }
+
                         outcomes.push({
                             student_id: studentId,
-                            outcome: 'graduated',
-                            reason: 'terminal_term_passed',
+                            outcome: 'retained',
+                            reason: 'terminal_term_credit_shortfall',
                             from_term_id: currentTermId,
                             to_term_id: null,
+                            required_total_credits: creditProgress.required_total_credits,
+                            earned_credits: creditProgress.earned_credits,
+                            credit_shortfall: creditProgress.credit_shortfall,
+                            failed_course_count: failedCourses,
                         });
+                        ineligibleReasonCount.set(
+                            'terminal_term_credit_shortfall',
+                            (ineligibleReasonCount.get('terminal_term_credit_shortfall') || 0) + 1
+                        );
                         continue;
                     }
 
@@ -603,9 +758,10 @@ class SystemStateModel {
                     outcomes.push({
                         student_id: studentId,
                         outcome: 'promoted',
-                        reason: 'all_courses_passed',
+                        reason: failedCourses > 0 ? 'promoted_with_retake_path' : 'promoted_all_courses_passed',
                         from_term_id: currentTermId,
                         to_term_id: Number(nextTerm.id),
+                        failed_course_count: failedCourses,
                     });
                     nextTermDistribution.set(
                         Number(nextTerm.id),
@@ -619,10 +775,13 @@ class SystemStateModel {
                 students_considered: outcomes.length,
                 students_eligible_for_next_term: outcomes.filter((item) => item.outcome === 'promoted').length,
                 students_will_graduate: outcomes.filter((item) => item.outcome === 'graduated').length,
+                students_retained_terminal_term: outcomes.filter((item) => item.outcome === 'retained').length,
                 students_not_eligible: outcomes.filter(
-                    (item) => item.outcome === 'failed' || item.outcome === 'skipped'
+                    (item) => item.outcome === 'retained' || item.outcome === 'skipped'
                 ).length,
-                pending_to_auto_approve: Number(pendingCountResult.rows[0]?.total || 0),
+                pending_to_auto_approve: enrollmentsInWindowResult.rows.filter(
+                    (row) => String(row.status || '').trim() === 'Pending'
+                ).length,
                 enrollments_to_archive: enrollmentsInWindowResult.rows.length,
                 enrollments_missing_grade_to_f: enrollmentsInWindowResult.rows.filter(
                     (row) => Boolean(row.will_be_default_f)
@@ -633,6 +792,8 @@ class SystemStateModel {
                 message: 'Session-end impact preview generated.',
                 can_execute: true,
                 blocking_reason: null,
+                target_term_source: targetTermResolution.source,
+                advisory_note: targetTermResolution.warning,
                 session_window: {
                     term_start: sessionStart,
                     term_end: sessionEnd,
@@ -757,20 +918,14 @@ class SystemStateModel {
                     [1, triggeredByUserId || null]
                 );
 
-                const targetTermsResult = await client.query(
-                    `
-                        SELECT id, department_id, term_number, start_date, end_date
-                        FROM terms
-                        WHERE start_date = $1::date
-                          AND end_date = $2::date
-                        ORDER BY department_id, term_number, id;
-                    `,
-                    [sessionStart, sessionEnd]
+                const targetTermResolution = await resolveTargetTermsForSession(
+                    (query, params = []) => client.query(query, params),
+                    sessionStart,
+                    sessionEnd
                 );
-
-                const targetTerms = targetTermsResult.rows;
+                const targetTerms = targetTermResolution.targetTerms;
                 if (targetTerms.length === 0) {
-                    const error = new Error('No terms found that match current session start/end dates.');
+                    const error = new Error(targetTermResolution.blockingReason);
                     error.statusCode = 409;
                     throw error;
                 }
@@ -780,59 +935,95 @@ class SystemStateModel {
                     .filter((termId) => Number.isInteger(termId));
                 const targetTermIdSet = new Set(targetTermIds);
 
-                const autoApproveResult = await client.query(
+                const scopedEnrollmentResult = await client.query(
                     `
-                        UPDATE student_enrollments se
-                        SET
-                            status = 'Enrolled'::enrollment_status_enum,
-                            approved_timestamp = COALESCE(se.approved_timestamp, NOW())
-                        FROM course_offerings co
-                        WHERE co.id = se.course_offering_id
-                          AND co.term_id = ANY($1::int[])
-                          AND se.status = 'Pending'
-                        RETURNING se.id;
-                    `,
-                    [targetTermIds]
-                );
-
-                await client.query(
-                    `
-                        SELECT refresh_enrollment_grade_from_markings(se.id)
+                        SELECT
+                            se.id AS enrollment_id,
+                            se.student_id,
+                            co.term_id,
+                            se.status
                         FROM student_enrollments se
                         JOIN course_offerings co ON co.id = se.course_offering_id
+                        JOIN students s ON s.user_id = se.student_id
                         WHERE co.term_id = ANY($1::int[])
-                          AND se.status = 'Enrolled';
+                          AND s.current_term = co.term_id
+                          AND se.status IN ('Pending', 'Enrolled');
                     `,
                     [targetTermIds]
                 );
 
-                const missingMarksAsFResult = await client.query(
-                    `
-                        UPDATE student_enrollments se
-                        SET grade = 'F'
-                        FROM course_offerings co
-                        WHERE co.id = se.course_offering_id
-                          AND co.term_id = ANY($1::int[])
-                          AND se.status = 'Enrolled'
-                          AND se.grade IS NULL
-                        RETURNING se.id;
-                    `,
-                    [targetTermIds]
-                );
+                const scopedEnrollmentIds = scopedEnrollmentResult.rows
+                    .map((row) => Number(row.enrollment_id))
+                    .filter((enrollmentId) => Number.isInteger(enrollmentId));
+                const scopedPendingEnrollmentIds = scopedEnrollmentResult.rows
+                    .filter((row) => String(row.status || '').trim() === 'Pending')
+                    .map((row) => Number(row.enrollment_id))
+                    .filter((enrollmentId) => Number.isInteger(enrollmentId));
 
-                const candidateStudentsResult = await client.query(
-                    `
-                        SELECT DISTINCT se.student_id
-                        FROM student_enrollments se
-                        JOIN course_offerings co ON co.id = se.course_offering_id
-                        WHERE co.term_id = ANY($1::int[])
-                          AND se.status = 'Enrolled';
-                    `,
-                    [targetTermIds]
-                );
+                const autoApproveResult = scopedPendingEnrollmentIds.length > 0
+                    ? await client.query(
+                        `
+                            UPDATE student_enrollments se
+                            SET
+                                status = 'Enrolled'::enrollment_status_enum,
+                                approved_timestamp = COALESCE(se.approved_timestamp, NOW())
+                            WHERE se.id = ANY($1::int[])
+                              AND se.status = 'Pending'
+                            RETURNING se.id;
+                        `,
+                        [scopedPendingEnrollmentIds]
+                    )
+                    : { rowCount: 0 };
 
-                const candidateStudentIds = candidateStudentsResult.rows
-                    .map((row) => Number(row.student_id))
+                if (scopedEnrollmentIds.length > 0) {
+                    await client.query(
+                        `
+                            SELECT refresh_enrollment_grade_from_markings(se.id)
+                            FROM student_enrollments se
+                            WHERE se.id = ANY($1::int[])
+                              AND se.status = 'Enrolled';
+                        `,
+                        [scopedEnrollmentIds]
+                    );
+                }
+
+                const missingMarksAsFResult = scopedEnrollmentIds.length > 0
+                    ? await client.query(
+                        `
+                            UPDATE student_enrollments se
+                            SET grade = 'F'
+                            WHERE se.id = ANY($1::int[])
+                              AND se.status = 'Enrolled'
+                              AND se.grade IS NULL
+                            RETURNING se.id;
+                        `,
+                        [scopedEnrollmentIds]
+                    )
+                    : { rowCount: 0 };
+
+                const candidateStudentIds = Array.from(new Set(
+                    scopedEnrollmentResult.rows
+                        .map((row) => Number(row.student_id))
+                        .filter((studentId) => Number.isInteger(studentId))
+                ));
+
+                const candidateStudentTermIds = Array.from(new Set(
+                    scopedEnrollmentResult.rows
+                        .map((row) => Number(row.term_id))
+                        .filter((termId) => Number.isInteger(termId))
+                ));
+
+                const candidateTermIdSet = new Set(candidateStudentTermIds);
+
+                const filteredTargetTermIdSet = candidateStudentTermIds.length > 0
+                    ? candidateTermIdSet
+                    : targetTermIdSet;
+
+                const filteredTargetTermIds = candidateStudentTermIds.length > 0
+                    ? candidateStudentTermIds
+                    : targetTermIds;
+
+                const candidateStudentIdsForCreditMap = candidateStudentIds
                     .filter((studentId) => Number.isInteger(studentId));
 
                 const allTermsResult = await client.query(
@@ -858,8 +1049,12 @@ class SystemStateModel {
                 const promoteGroups = new Map();
                 const graduateIds = [];
                 const nextStartCandidates = [];
+                const creditProgressByStudent = await buildStudentCreditProgressMap(
+                    (query, params = []) => client.query(query, params),
+                    candidateStudentIdsForCreditMap
+                );
 
-                if (candidateStudentIds.length > 0) {
+                if (candidateStudentIdsForCreditMap.length > 0) {
                     const studentContextResult = await client.query(
                         `
                             SELECT
@@ -873,7 +1068,7 @@ class SystemStateModel {
                             WHERE s.user_id = ANY($1::int[])
                             ORDER BY s.user_id;
                         `,
-                        [candidateStudentIds]
+                        [candidateStudentIdsForCreditMap]
                     );
 
                     const enrollmentResult = await client.query(
@@ -884,11 +1079,10 @@ class SystemStateModel {
                                 se.grade
                             FROM student_enrollments se
                             JOIN course_offerings co ON co.id = se.course_offering_id
-                            WHERE se.student_id = ANY($1::int[])
-                              AND co.term_id = ANY($2::int[])
+                            WHERE se.id = ANY($1::int[])
                               AND se.status = 'Enrolled';
                         `,
-                        [candidateStudentIds, targetTermIds]
+                        [scopedEnrollmentIds]
                     );
 
                     const byStudentTerm = new Map();
@@ -908,7 +1102,7 @@ class SystemStateModel {
                         const departmentId = Number(student.department_id);
                         const termNumber = Number(student.term_number);
 
-                        if (!Number.isInteger(currentTermId) || !targetTermIdSet.has(currentTermId)) {
+                        if (!Number.isInteger(currentTermId) || !filteredTargetTermIdSet.has(currentTermId)) {
                             outcomes.push({
                                 student_id: studentId,
                                 outcome: 'skipped',
@@ -923,23 +1117,13 @@ class SystemStateModel {
                         const stats = byStudentTerm.get(statKey) || { total_courses: 0, passed_courses: 0 };
                         const totalCourses = Number(stats.total_courses || 0);
                         const passedCourses = Number(stats.passed_courses || 0);
+                        const failedCourses = Math.max(totalCourses - passedCourses, 0);
 
                         if (totalCourses <= 0) {
                             outcomes.push({
                                 student_id: studentId,
-                                outcome: 'failed',
-                                reason: 'no_enrolled_courses',
-                                from_term_id: currentTermId,
-                                to_term_id: null,
-                            });
-                            continue;
-                        }
-
-                        if (passedCourses < totalCourses) {
-                            outcomes.push({
-                                student_id: studentId,
-                                outcome: 'failed',
-                                reason: 'one_or_more_courses_not_passed',
+                                outcome: 'skipped',
+                                reason: 'no_enrolled_courses_in_current_term',
                                 from_term_id: currentTermId,
                                 to_term_id: null,
                             });
@@ -958,13 +1142,37 @@ class SystemStateModel {
                         }
 
                         if (termNumber >= TERMINAL_TERM_NUMBER) {
-                            graduateIds.push(studentId);
+                            const creditProgress = creditProgressByStudent.get(studentId) || {
+                                required_total_credits: DEFAULT_REQUIRED_TOTAL_CREDITS,
+                                earned_credits: 0,
+                                credit_shortfall: DEFAULT_REQUIRED_TOTAL_CREDITS,
+                            };
+
+                            if (creditProgress.earned_credits >= creditProgress.required_total_credits) {
+                                graduateIds.push(studentId);
+                                outcomes.push({
+                                    student_id: studentId,
+                                    outcome: 'graduated',
+                                    reason: 'credit_requirement_met',
+                                    from_term_id: currentTermId,
+                                    to_term_id: null,
+                                    required_total_credits: creditProgress.required_total_credits,
+                                    earned_credits: creditProgress.earned_credits,
+                                    failed_course_count: failedCourses,
+                                });
+                                continue;
+                            }
+
                             outcomes.push({
                                 student_id: studentId,
-                                outcome: 'graduated',
-                                reason: 'terminal_term_passed',
+                                outcome: 'retained',
+                                reason: 'terminal_term_credit_shortfall',
                                 from_term_id: currentTermId,
                                 to_term_id: null,
+                                required_total_credits: creditProgress.required_total_credits,
+                                earned_credits: creditProgress.earned_credits,
+                                credit_shortfall: creditProgress.credit_shortfall,
+                                failed_course_count: failedCourses,
                             });
                             continue;
                         }
@@ -994,9 +1202,10 @@ class SystemStateModel {
                         outcomes.push({
                             student_id: studentId,
                             outcome: 'promoted',
-                            reason: 'all_courses_passed',
+                            reason: failedCourses > 0 ? 'promoted_with_retake_path' : 'promoted_all_courses_passed',
                             from_term_id: currentTermId,
                             to_term_id: nextTermId,
+                            failed_course_count: failedCourses,
                         });
                     }
                 }
@@ -1024,18 +1233,18 @@ class SystemStateModel {
                     );
                 }
 
-                const archiveResult = await client.query(
-                    `
-                        UPDATE student_enrollments se
-                        SET status = 'Archived'::enrollment_status_enum
-                        FROM course_offerings co
-                        WHERE co.id = se.course_offering_id
-                          AND co.term_id = ANY($1::int[])
-                          AND se.status = 'Enrolled'
-                        RETURNING se.id;
-                    `,
-                    [targetTermIds]
-                );
+                const archiveResult = scopedEnrollmentIds.length > 0
+                    ? await client.query(
+                        `
+                            UPDATE student_enrollments se
+                            SET status = 'Archived'::enrollment_status_enum
+                            WHERE se.id = ANY($1::int[])
+                              AND se.status = 'Enrolled'
+                            RETURNING se.id;
+                        `,
+                        [scopedEnrollmentIds]
+                    )
+                    : { rowCount: 0 };
 
                 const nowDate = toDateOnly(new Date());
                 const termStartDate = toDateOnly(state.term_start);
@@ -1049,13 +1258,17 @@ class SystemStateModel {
                     .sort()[0] || toDateOnly(state.newest_term_start) || sessionStart;
 
                 const summary = {
-                    terms_processed: targetTermIds.length,
+                    terms_processed: filteredTargetTermIds.length,
                     students_considered: outcomes.length,
                     pending_auto_approved: Number(autoApproveResult.rowCount || 0),
                     missing_marks_marked_as_f: Number(missingMarksAsFResult.rowCount || 0),
                     archived_enrollments: Number(archiveResult.rowCount || 0),
                     promoted_count: outcomes.filter((item) => item.outcome === 'promoted').length,
+                    promoted_with_retake_count: outcomes.filter(
+                        (item) => item.outcome === 'promoted' && item.reason === 'promoted_with_retake_path'
+                    ).length,
                     graduated_count: outcomes.filter((item) => item.outcome === 'graduated').length,
+                    retained_terminal_term_count: outcomes.filter((item) => item.outcome === 'retained').length,
                     failed_count: outcomes.filter((item) => item.outcome === 'failed').length,
                     skipped_count: outcomes.filter((item) => item.outcome === 'skipped').length,
                 };
@@ -1112,6 +1325,8 @@ class SystemStateModel {
 
                 return {
                     message: 'Current session ended and progression completed successfully.',
+                    target_term_source: targetTermResolution.source,
+                    advisory_note: targetTermResolution.warning,
                     session_window: {
                         term_start: sessionStart,
                         term_end: sessionEnd,

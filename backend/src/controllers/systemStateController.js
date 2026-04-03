@@ -122,6 +122,7 @@ class SystemStateController {
                         students_considered: 0,
                         students_eligible_for_next_term: 0,
                         students_will_graduate: 0,
+                        students_retained_terminal_term: 0,
                         students_not_eligible: 0,
                         pending_to_auto_approve: 0,
                         enrollments_to_archive: 0,

@@ -252,6 +252,7 @@ const DuesManagement = ({ initialTab = "dues" }) => {
       await api.post(`/payments/rules/${scopeForm.rule_id}/scopes`, payload);
       setScopeForm(INITIAL_SCOPE_FORM);
       setMessage({ type: "success", text: "Rule scope added successfully." });
+      await fetchMeta();
     } catch (error) {
       setMessage({
         type: "error",

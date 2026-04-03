@@ -9,13 +9,13 @@ class DepartmentModel {
         return this.db.run(
             "create_department",
             async () => {
-                const { code, name, department_head_id } = payload;
+                const { code, name, department_head_id, required_total_credits } = payload;
                 const query = `
-                    INSERT INTO departments (code, name, department_head_id)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO departments (code, name, department_head_id, required_total_credits)
+                    VALUES ($1, $2, $3, COALESCE($4, 160.0))
                     RETURNING *;
                 `;
-                const params = [code, name, department_head_id || null];
+                const params = [code, name, department_head_id || null, required_total_credits ?? null];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
             }
@@ -49,14 +49,17 @@ class DepartmentModel {
         return this.db.run(
             "update_department",
             async () => {
-                const { code, name, department_head_id } = payload;
+                const { code, name, department_head_id, required_total_credits } = payload;
                 const query = `
                     UPDATE departments
-                    SET code = $2, name = $3, department_head_id = $4
+                    SET code = $2,
+                        name = $3,
+                        department_head_id = $4,
+                        required_total_credits = COALESCE($5, required_total_credits)
                     WHERE id = $1
                     RETURNING *;
                 `;
-                const params = [id, code, name, department_head_id || null];
+                const params = [id, code, name, department_head_id || null, required_total_credits ?? null];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
             }
