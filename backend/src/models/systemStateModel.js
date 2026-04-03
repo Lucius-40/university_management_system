@@ -411,6 +411,26 @@ class SystemStateModel {
         });
     }
 
+    getTargetTermsFromEnrolledEnrollments = async (queryRunner) => {
+        const result = await queryRunner(
+            `
+                SELECT DISTINCT
+                    t.id,
+                    t.department_id,
+                    t.term_number,
+                    t.start_date,
+                    t.end_date
+                FROM student_enrollments se
+                JOIN course_offerings co ON co.id = se.course_offering_id
+                JOIN terms t ON t.id = co.term_id
+                WHERE se.status = 'Enrolled'
+                ORDER BY t.department_id, t.term_number, t.id;
+            `
+        );
+
+        return result.rows;
+    }
+
     previewEndCurrentSessionImpact = () => {
         return this.db.run('preview_end_current_session_impact', async () => {
             await this.ensureSessionEndSchema();
@@ -511,17 +531,14 @@ class SystemStateModel {
                 };
             }
 
-            const targetTermResolution = await resolveTargetTermsForSession(
-                this.db.query_executor,
-                sessionStart,
-                sessionEnd
+            const targetTerms = await this.getTargetTermsFromEnrolledEnrollments((query, params = []) =>
+                this.db.query_executor(query, params)
             );
-            const targetTerms = targetTermResolution.targetTerms;
             if (targetTerms.length === 0) {
                 return {
                     message: 'Session-end impact preview generated.',
                     can_execute: false,
-                    blocking_reason: targetTermResolution.blockingReason,
+                    blocking_reason: 'No terms currently have enrollments with status Enrolled.',
                     session_window: {
                         term_start: sessionStart,
                         term_end: sessionEnd,
@@ -918,14 +935,11 @@ class SystemStateModel {
                     [1, triggeredByUserId || null]
                 );
 
-                const targetTermResolution = await resolveTargetTermsForSession(
-                    (query, params = []) => client.query(query, params),
-                    sessionStart,
-                    sessionEnd
+                const targetTerms = await this.getTargetTermsFromEnrolledEnrollments((query, params = []) =>
+                    client.query(query, params)
                 );
-                const targetTerms = targetTermResolution.targetTerms;
                 if (targetTerms.length === 0) {
-                    const error = new Error(targetTermResolution.blockingReason);
+                    const error = new Error('No terms currently have enrollments with status Enrolled.');
                     error.statusCode = 409;
                     throw error;
                 }

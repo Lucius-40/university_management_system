@@ -2,6 +2,7 @@ const StudentModel = require('../models/studentModel.js');
 const EnrollmentModel = require('../models/enrollmentModel.js');
 const CourseModel = require('../models/courseModel.js');
 const SectionModel = require('../models/sectionModel.js');
+const MarkingModel = require('../models/markingModel.js');
 const DB_Connection = require('../database/db.js');
 const bcrypt = require('bcryptjs');
 const {
@@ -17,6 +18,7 @@ class StudentController {
         this.enrollmentModel = new EnrollmentModel();
         this.courseModel = new CourseModel();
         this.sectionModel = new SectionModel();
+        this.markingModel = new MarkingModel();
         this.db = DB_Connection.getInstance();
     }
 
@@ -279,10 +281,60 @@ class StudentController {
                 });
             }
 
+            const passingGrades = new Set(['A+', 'A', 'A-', 'B', 'C', 'D']);
+            const chronologicalRows = [];
+            const rowOrderByKey = new Map();
+
+            let rowOrder = 0;
+            for (const group of termResults) {
+                for (const row of group.results || []) {
+                    const key = `${group.term.id}:${Number(row.enrollment_id)}`;
+                    rowOrderByKey.set(key, rowOrder);
+                    chronologicalRows.push({
+                        order: rowOrder,
+                        course_id: Number(row.course_id),
+                        grade: String(row.grade || '').trim().toUpperCase(),
+                    });
+                    rowOrder += 1;
+                }
+            }
+
+            const latestPassingOrderByCourse = new Map();
+            for (const row of chronologicalRows) {
+                if (!Number.isInteger(row.course_id) || !passingGrades.has(row.grade)) {
+                    continue;
+                }
+                latestPassingOrderByCourse.set(row.course_id, row.order);
+            }
+
+            const filteredTermResults = termResults.map((group) => ({
+                ...group,
+                results: (group.results || []).filter((row) => {
+                    const courseId = Number(row.course_id);
+                    const latestPassingOrder = latestPassingOrderByCourse.get(courseId);
+                    if (!Number.isInteger(courseId) || latestPassingOrder === undefined) {
+                        return true;
+                    }
+
+                    const rowGrade = String(row.grade || '').trim().toUpperCase();
+                    if (passingGrades.has(rowGrade)) {
+                        return true;
+                    }
+
+                    const key = `${group.term.id}:${Number(row.enrollment_id)}`;
+                    const currentRowOrder = rowOrderByKey.get(key);
+                    if (!Number.isInteger(currentRowOrder)) {
+                        return true;
+                    }
+
+                    return currentRowOrder >= latestPassingOrder;
+                }),
+            }));
+
             res.status(200).json({
                 student_id,
                 include_current: includeCurrentTerm,
-                terms: termResults,
+                terms: filteredTermResults,
             });
         } catch (error) {
             console.error('Get all student results error:', error);
@@ -830,6 +882,9 @@ class StudentController {
         } catch (error) {
             await client.query('ROLLBACK');
             console.error("Register for courses error:", error);
+            if (Number(error.statusCode) >= 400 && Number(error.statusCode) < 500) {
+                return res.status(Number(error.statusCode)).json({ error: error.message });
+            }
             res.status(500).json({ error: error.message });
         } finally {
             client.release();
@@ -1212,7 +1267,9 @@ class StudentController {
                 };
             });
 
-            const progressTracker = enrolledCourses.map((course) => ({
+            const progressTracker = enrolledCourses
+                .filter((course) => String(course.enrollment_status || '').toLowerCase() === 'enrolled')
+                .map((course) => ({
                 enrollment_id: course.enrollment_id,
                 course_offering_id: course.course_offering_id,
                 course_code: course.course.code,
@@ -1221,7 +1278,7 @@ class StudentController {
                 marks: course.published_components,
                 progress: course.progress,
                 term_result: course.term_result,
-            }));
+                }));
 
             const currentCredits = toNumber(currentCreditsRaw, 0);
             const remainingCredits = Number((maxCredit - currentCredits).toFixed(1));

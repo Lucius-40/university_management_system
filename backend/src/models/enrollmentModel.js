@@ -16,6 +16,35 @@ class EnrollmentModel {
                     status, 
                     is_retake 
                 } = payload;
+
+                const passedAttemptCheckQuery = `
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM student_enrollments se
+                        JOIN course_offerings co_existing ON co_existing.id = se.course_offering_id
+                        WHERE se.student_id = $1
+                          AND co_existing.course_id = (
+                              SELECT co_target.course_id
+                              FROM course_offerings co_target
+                              WHERE co_target.id = $2
+                              LIMIT 1
+                          )
+                          AND se.status IN ('Enrolled', 'Archived')
+                          AND se.grade IN ('A+', 'A', 'A-', 'B', 'C', 'D')
+                    ) AS has_passed;
+                `;
+                const passedAttemptCheckResult = await this.db.query_executor(passedAttemptCheckQuery, [
+                    student_id,
+                    course_offering_id,
+                ]);
+
+                if (Boolean(passedAttemptCheckResult.rows[0]?.has_passed)) {
+                    const error = new Error('Cannot register for this course again because the student already passed it in a previous attempt.');
+                    error.statusCode = 400;
+                    error.code = 'COURSE_ALREADY_PASSED';
+                    throw error;
+                }
+
                 const query = `
                     INSERT INTO student_enrollments 
                     (student_id, course_offering_id, credit_when_taking, status, is_retake)
@@ -482,7 +511,7 @@ class EnrollmentModel {
                                             ON td.id = tt.department_id
                                         WHERE se.student_id = $1
                                             AND co.term_id = $2
-                                            AND se.status IN ('Pending', 'Enrolled', 'Archived')
+                                            AND se.status = 'Enrolled'
                                         ORDER BY c.course_code ASC, se.enrollment_timestamp ASC, se.id ASC;
                                 `;
 
