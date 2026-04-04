@@ -85,7 +85,6 @@ class SectionModel {
         );
     }
 
-    // Student section assignment methods
     assignStudentToSection = (student_id, section_name, type = 'n') => {
         return this.db.run(
             'assign_student_to_section',
@@ -119,9 +118,9 @@ class SectionModel {
                       ON s.name = ss.section_name
                      AND s.term_id = $2
                     WHERE ss.student_id = $1
-                                        ORDER BY
-                                            CASE WHEN ss.type = 'n' THEN 0 ELSE 1 END,
-                                            ss.ctid DESC
+                        ORDER BY
+                            CASE WHEN ss.type = 'n' THEN 0 ELSE 1 END,
+                            ss.ctid DESC
                     LIMIT 1;
                 `;
                 const preferredResult = await this.db.query_executor(preferredQuery, [student_id, term_id]);
@@ -399,44 +398,44 @@ class SectionModel {
     }
 
         getSectionAssignmentsForInspection = (filters = {}) => {
-                return this.db.run(
-                        'get_section_assignments_for_inspection',
-                        async () => {
-                                const departmentId = filters.department_id ? Number(filters.department_id) : null;
-                                const termId = filters.term_id ? Number(filters.term_id) : null;
-                                const sectionName = filters.section_name ? String(filters.section_name).trim() : null;
+            return this.db.run(
+                'get_section_assignments_for_inspection',
+                async () => {
+                    const departmentId = filters.department_id ? Number(filters.department_id) : null;
+                    const termId = filters.term_id ? Number(filters.term_id) : null;
+                    const sectionName = filters.section_name ? String(filters.section_name).trim() : null;
 
-                                const query = `
-                                        SELECT
-                                                d.id AS department_id,
-                                                d.code AS department_code,
-                                                d.name AS department_name,
-                                                t.id AS term_id,
-                                                t.term_number,
-                                                ss.section_name,
-                                                s.user_id AS student_id,
-                                                u.name AS student_name,
-                                                s.roll_number
-                                        FROM student_sections ss
-                                        JOIN students s
-                                            ON s.user_id = ss.student_id
-                                        JOIN users u
-                                            ON u.id = s.user_id
-                                        JOIN terms t
-                                            ON t.id = s.current_term
-                                        JOIN departments d
-                                            ON d.id = t.department_id
-                                        WHERE ($1::int IS NULL OR d.id = $1)
-                                            AND ($2::int IS NULL OR t.id = $2)
-                                            AND ($3::text IS NULL OR ss.section_name = $3)
-                                        ORDER BY ss.section_name, t.term_number, s.roll_number;
-                                `;
+                    const query = `
+                            SELECT
+                                    d.id AS department_id,
+                                    d.code AS department_code,
+                                    d.name AS department_name,
+                                    t.id AS term_id,
+                                    t.term_number,
+                                    ss.section_name,
+                                    s.user_id AS student_id,
+                                    u.name AS student_name,
+                                    s.roll_number
+                            FROM student_sections ss
+                            JOIN students s
+                                ON s.user_id = ss.student_id
+                            JOIN users u
+                                ON u.id = s.user_id
+                            JOIN terms t
+                                ON t.id = s.current_term
+                            JOIN departments d
+                                ON d.id = t.department_id
+                            WHERE ($1::int IS NULL OR d.id = $1)
+                                AND ($2::int IS NULL OR t.id = $2)
+                                AND ($3::text IS NULL OR ss.section_name = $3)
+                            ORDER BY ss.section_name, t.term_number, s.roll_number;
+                    `;
 
-                                const params = [departmentId, termId, sectionName || null];
-                                const result = await this.db.query_executor(query, params);
-                                return result.rows;
-                        }
-                );
+                    const params = [departmentId, termId, sectionName || null];
+                    const result = await this.db.query_executor(query, params);
+                    return result.rows;
+                }
+            );
         }
 }
 

@@ -540,7 +540,6 @@ class TeacherController {
                     getValue(source, ["department_code", "department", "Department", "Department Code"])
                 ).toUpperCase();
 
-                // teachers.csv does not contain birth date; this fallback keeps imports usable for seed/demo data.
                 const birth_date =
                     normalize(getValue(source, ["birth_date", "Birth Date", "birth date"])) ||
                     "1990-01-01";

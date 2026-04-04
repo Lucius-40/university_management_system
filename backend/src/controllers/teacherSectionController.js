@@ -39,9 +39,6 @@ class TeacherSectionController {
         }
     }
 
-    /**
-     * Get all sections taught by the authenticated teacher in current terms
-     */
     getTeacherSections = async (req, res) => {
         try {
             const teacherId = req.user.id;
@@ -60,9 +57,6 @@ class TeacherSectionController {
         }
     }
 
-    /**
-     * Get all students in a specific section taught by the authenticated teacher
-     */
     getStudentsInSection = async (req, res) => {
         try {
             const teacherId = req.user.id;
