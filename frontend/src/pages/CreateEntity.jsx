@@ -16,6 +16,7 @@ import AdvisorSection from "./createEntity/AdvisorSection";
 import SectionAssignSection from "./createEntity/SectionAssignSection";
 import BatchStudentSection from "./createEntity/BatchStudentSection";
 import BatchTeacherSection from "./createEntity/BatchTeacherSection";
+import StudentRollPickerModal from "../components/StudentRollPickerModal";
 
 const BATCH_CHUNK_SIZE = 40;
 
@@ -71,6 +72,7 @@ const CreateEntity = ({ initialTab = "student" }) => {
   const [batchTeacherLoading, setBatchTeacherLoading] = useState(false);
   const [batchStudentResult, setBatchStudentResult] = useState(null);
   const [batchTeacherResult, setBatchTeacherResult] = useState(null);
+  const [rollPicker, setRollPicker] = useState({ isOpen: false, target: "" });
 
   const [teacherInspectFilters, setTeacherInspectFilters] = useState({
     department_id: "",
@@ -542,6 +544,53 @@ const CreateEntity = ({ initialTab = "student" }) => {
     }
   }, [activeMode, activeTab]);
 
+  const openRollPicker = (target) => {
+    setRollPicker({ isOpen: true, target });
+  };
+
+  const closeRollPicker = () => {
+    setRollPicker({ isOpen: false, target: "" });
+  };
+
+  const handleRollSelected = (rollNumber) => {
+    if (rollPicker.target === "advisor_start") {
+      setAdvisorForm((previous) => ({ ...previous, roll_start: rollNumber }));
+    }
+
+    if (rollPicker.target === "advisor_end") {
+      setAdvisorForm((previous) => ({ ...previous, roll_end: rollNumber }));
+    }
+
+    if (rollPicker.target === "section_start") {
+      setSectionForm((previous) => ({ ...previous, roll_start: rollNumber }));
+    }
+
+    if (rollPicker.target === "section_end") {
+      setSectionForm((previous) => ({ ...previous, roll_end: rollNumber }));
+    }
+
+    closeRollPicker();
+  };
+
+  const pickerDepartmentId =
+    rollPicker.target === "advisor_start" || rollPicker.target === "advisor_end"
+      ? advisorForm.department_id
+      : sectionForm.department_id;
+
+  const pickerTermId =
+    rollPicker.target === "advisor_start" || rollPicker.target === "advisor_end"
+      ? advisorForm.term_id
+      : sectionForm.term_id;
+
+  const pickerTitle =
+    rollPicker.target === "advisor_start"
+      ? "Select Start Roll For Advisor Assignment"
+      : rollPicker.target === "advisor_end"
+      ? "Select End Roll For Advisor Assignment"
+      : rollPicker.target === "section_start"
+      ? "Select Start Roll For Section Assignment"
+      : "Select End Roll For Section Assignment";
+
   const handleSectionAssign = async (event) => {
     event.preventDefault();
     setMessage({ type: "", text: "" });
@@ -605,8 +654,10 @@ const CreateEntity = ({ initialTab = "student" }) => {
     setMessage({ type: "", text: "" });
     setAdvisorSummary(null);
 
-    const rollStartNumber = Number(advisorForm.roll_start);
-    const rollEndNumber = Number(advisorForm.roll_end);
+    const rawRollStart = String(advisorForm.roll_start || "").trim();
+    const rawRollEnd = String(advisorForm.roll_end || "").trim();
+    const rollStartNumber = extractRollSuffix(rawRollStart);
+    const rollEndNumber = extractRollSuffix(rawRollEnd);
 
     if (!advisorForm.department_id || !advisorForm.term_id || !advisorForm.teacher_id) {
       setMessage({ type: "error", text: "Department, term, and advisor teacher are required." });
@@ -614,7 +665,10 @@ const CreateEntity = ({ initialTab = "student" }) => {
     }
 
     if (!Number.isInteger(rollStartNumber) || !Number.isInteger(rollEndNumber)) {
-      setMessage({ type: "error", text: "Roll start and roll end must be whole numbers." });
+      setMessage({
+        type: "error",
+        text: "Roll start and roll end must contain digits (for example CSE2305160 or 160).",
+      });
       return;
     }
 
@@ -624,7 +678,7 @@ const CreateEntity = ({ initialTab = "student" }) => {
     }
 
     const confirmed = window.confirm(
-      `Assign advisor to roll range ${rollStartNumber} to ${rollEndNumber}? This will close old active advisor rows and keep history.`
+      `Assign advisor to roll range ${rawRollStart} to ${rawRollEnd}? (Matched by last 3 digits: ${rollStartNumber}-${rollEndNumber}) This will close old active advisor rows and keep history.`
     );
 
     if (!confirmed) return;
@@ -636,8 +690,8 @@ const CreateEntity = ({ initialTab = "student" }) => {
         department_id: Number(advisorForm.department_id),
         term_id: Number(advisorForm.term_id),
         teacher_id: Number(advisorForm.teacher_id),
-        roll_start: rollStartNumber,
-        roll_end: rollEndNumber,
+        roll_start: rawRollStart,
+        roll_end: rawRollEnd,
       };
 
       if (advisorForm.start_date) {
@@ -965,6 +1019,7 @@ const CreateEntity = ({ initialTab = "student" }) => {
           handleAdvisorAssign={handleAdvisorAssign}
           advisorForm={advisorForm}
           setAdvisorForm={setAdvisorForm}
+          openRollPicker={openRollPicker}
           advisorAssigning={advisorAssigning}
           advisorTerms={advisorTerms}
           advisorTeachers={advisorTeachers}
@@ -986,10 +1041,20 @@ const CreateEntity = ({ initialTab = "student" }) => {
           handleSectionAssign={handleSectionAssign}
           sectionForm={sectionForm}
           setSectionForm={setSectionForm}
+          openRollPicker={openRollPicker}
           sectionAssigning={sectionAssigning}
           sectionTerms={sectionTerms}
           sectionOptions={sectionOptions}
           sectionSummary={sectionSummary}
+        />
+
+        <StudentRollPickerModal
+          isOpen={rollPicker.isOpen}
+          onClose={closeRollPicker}
+          onSelect={handleRollSelected}
+          departmentId={pickerDepartmentId}
+          termId={pickerTermId}
+          title={pickerTitle}
         />
 
         <BatchStudentSection

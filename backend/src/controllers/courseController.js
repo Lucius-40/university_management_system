@@ -141,28 +141,36 @@ class CourseController {
             }
 
             if (insertedMeta.length) {
-                const courseResult = await client.query(`SELECT id, course_code FROM courses;`);
-                const codeToId = new Map(
-                    courseResult.rows.map((row) => [String(row.course_code || '').trim().toUpperCase(), Number(row.id)])
-                );
-
-                for (const item of insertedMeta) {
-                    if (!item.prereq_codes.length) continue;
-
-                    const prereqIds = item.prereq_codes
-                        .map((code) => codeToId.get(code))
-                        .filter((id) => Number.isInteger(id) && id > 0 && id !== Number(item.course_id));
-
-                    if (!prereqIds.length) continue;
-
-                    await client.query(
-                        `
-                            INSERT INTO course_prerequisites (course_id, prereq_id)
-                            SELECT $1, UNNEST($2::int[])
-                            ON CONFLICT (course_id, prereq_id) DO NOTHING;
-                        `,
-                        [item.course_id, prereqIds]
+                await client.query('BEGIN');
+                try {
+                    const courseResult = await client.query(`SELECT id, course_code FROM courses;`);
+                    const codeToId = new Map(
+                        courseResult.rows.map((row) => [String(row.course_code || '').trim().toUpperCase(), Number(row.id)])
                     );
+
+                    for (const item of insertedMeta) {
+                        if (!item.prereq_codes.length) continue;
+
+                        const prereqIds = item.prereq_codes
+                            .map((code) => codeToId.get(code))
+                            .filter((id) => Number.isInteger(id) && id > 0 && id !== Number(item.course_id));
+
+                        if (!prereqIds.length) continue;
+
+                        await client.query(
+                            `
+                                INSERT INTO course_prerequisites (course_id, prereq_id)
+                                SELECT $1, UNNEST($2::int[])
+                                ON CONFLICT (course_id, prereq_id) DO NOTHING;
+                            `,
+                            [item.course_id, prereqIds]
+                        );
+                    }
+
+                    await client.query('COMMIT');
+                } catch (error) {
+                    await client.query('ROLLBACK');
+                    throw error;
                 }
             }
 
@@ -245,6 +253,11 @@ class CourseController {
             res.status(201).json(offering);
         } catch (error) {
             console.error("Create Course Offering error:", error);
+            if (error?.code === '23505' && error?.constraint === 'course_offerings_pkey') {
+                return res.status(409).json({
+                    error: 'Course offering creation conflicted with an existing id. Please retry the request.',
+                });
+            }
             res.status(500).json({ error: error.message });
         }
     }

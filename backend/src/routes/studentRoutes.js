@@ -16,6 +16,7 @@ router.post('/batch', auth.authenticateToken, studentController.createStudentsBa
 router.get('/', auth.authenticateToken, studentController.getAllStudents);
 router.post('/advisors/assign-range', auth.authenticateToken, studentController.assignAdvisorsByRollRange);
 router.get('/advisors/inspect', auth.authenticateToken, studentController.getAdvisorAssignmentsForInspection);
+router.get('/roll-options', auth.authenticateToken, studentController.getStudentRollOptions);
 router.get('/:user_id/advisors/current', auth.authenticateToken, validateParamId('user_id'), studentController.getCurrentAdvisorByStudentId);
 router.get('/:user_id/advisors/history', auth.authenticateToken, validateParamId('user_id'), studentController.getAdvisorHistoryByStudentId);
 router.get('/:user_id/advisors', auth.authenticateToken, validateParamId('user_id'), studentController.getAdvisorTimelineByStudentId);

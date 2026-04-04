@@ -174,6 +174,7 @@ const DuesManagement = ({ initialTab = "dues" }) => {
   };
 
   const handleDueEdit = (due) => {
+    setActiveMode("insertion");
     setEditingDueId(due.id);
     setDueForm({
       name: due.name || "",
@@ -341,8 +342,10 @@ const DuesManagement = ({ initialTab = "dues" }) => {
       const response = await api.post(`/payments/rules/${ruleId}/issue`);
       const data = response.data || {};
       setMessage({
-        type: "success",
-        text: `Issuance done. Issued ${data.issued_count || 0}, skipped ${data.skipped_count || 0}, matched ${data.matched_count || 0}.`,
+        type: data.warning ? "warning" : "success",
+        text: data.warning
+          ? `Issuance completed with warning: ${data.warning} (Issued ${data.issued_count || 0}, skipped ${data.skipped_count || 0}, matched ${data.matched_count || 0}).`
+          : `Issuance done. Issued ${data.issued_count || 0}, skipped ${data.skipped_count || 0}, matched ${data.matched_count || 0}.`,
       });
       await fetchMeta();
     } catch (error) {
@@ -477,6 +480,8 @@ const DuesManagement = ({ initialTab = "dues" }) => {
             className={`mt-4 rounded border px-3 py-2 text-sm ${
               message.type === "success"
                 ? "border-green-200 bg-green-50 text-green-700"
+                : message.type === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-800"
                 : "border-red-200 bg-red-50 text-red-700"
             }`}
           >

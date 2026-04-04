@@ -21,16 +21,32 @@ class RoutineModel {
     replaceRoutine = (fileUrl) => {
         return this.db.run('replace_routine', async () => {
             await this.ensureRoutineTable();
-            const clearQuery = 'DELETE FROM routine;';
-            await this.db.query_executor(clearQuery);
+            const client = await this.db.pool.connect();
+            try {
+                await client.query('BEGIN');
 
-            const insertQuery = `
-                INSERT INTO routine (file_url)
-                VALUES ($1)
-                RETURNING file_url;
-            `;
-            const result = await this.db.query_executor(insertQuery, [fileUrl]);
-            return result.rows[0] || null;
+                const clearQuery = 'DELETE FROM routine;';
+                await client.query(clearQuery);
+
+                const insertQuery = `
+                    INSERT INTO routine (file_url)
+                    VALUES ($1)
+                    RETURNING file_url;
+                `;
+                const result = await client.query(insertQuery, [fileUrl]);
+
+                await client.query('COMMIT');
+                return result.rows[0] || null;
+            } catch (error) {
+                try {
+                    await client.query('ROLLBACK');
+                } catch (rollbackError) {
+                    console.error('Replace routine rollback failed:', rollbackError.message);
+                }
+                throw error;
+            } finally {
+                client.release();
+            }
         });
     }
 

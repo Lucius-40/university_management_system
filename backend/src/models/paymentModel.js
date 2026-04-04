@@ -159,6 +159,199 @@ class PaymentModel {
         this.db = DB_Connection.getInstance();
     }
 
+    autoIssueEligibleRulesForStudent = async (studentId) => {
+        const query = `
+            WITH student_ctx AS (
+                SELECT
+                    s.user_id AS student_id,
+                    s.roll_number,
+                    s.current_term AS term_id,
+                    t.term_number,
+                    t.start_date AS term_start,
+                    t.department_id
+                FROM students s
+                LEFT JOIN terms t ON t.id = s.current_term
+                WHERE s.user_id = $1
+                LIMIT 1
+            ),
+            active_rules AS (
+                SELECT
+                    dr.id AS rule_id,
+                    dr.due_id,
+                    dr.frequency,
+                    dr.required_for_registration,
+                    dr.issue_offset_days,
+                    d.amount AS due_amount
+                FROM due_rules dr
+                JOIN dues d ON d.id = dr.due_id
+                WHERE dr.is_active = TRUE
+                  AND COALESCE(d.is_active, TRUE) = TRUE
+                  AND (dr.starts_on IS NULL OR dr.starts_on <= CURRENT_DATE)
+                  AND (dr.ends_on IS NULL OR dr.ends_on >= CURRENT_DATE)
+            ),
+            matched_rules AS (
+                SELECT
+                    ar.rule_id,
+                    ar.due_id,
+                    ar.frequency,
+                    ar.required_for_registration,
+                    ar.issue_offset_days,
+                    ar.due_amount,
+                    sc.student_id,
+                    sc.roll_number,
+                    sc.term_id,
+                    sc.term_number,
+                    sc.term_start,
+                    sc.department_id,
+                    (
+                        SELECT o.override_amount
+                        FROM due_rule_amount_overrides o
+                        WHERE o.rule_id = ar.rule_id
+                          AND (o.department_id IS NULL OR o.department_id = sc.department_id)
+                          AND (o.term_number IS NULL OR o.term_number = sc.term_number)
+                          AND (
+                            o.section_name IS NULL
+                            OR EXISTS (
+                                SELECT 1
+                                FROM student_sections ss
+                                WHERE ss.student_id = sc.student_id
+                                  AND ss.section_name = o.section_name
+                            )
+                          )
+                          AND (
+                            o.batch_year IS NULL
+                            OR o.batch_year = CAST(NULLIF(SUBSTRING(sc.roll_number FROM '^[0-9]{4}'), '') AS INT)
+                          )
+                        ORDER BY
+                            (CASE WHEN o.department_id IS NULL THEN 0 ELSE 1 END
+                             + CASE WHEN o.term_number IS NULL THEN 0 ELSE 1 END
+                             + CASE WHEN o.section_name IS NULL THEN 0 ELSE 1 END
+                             + CASE WHEN o.batch_year IS NULL THEN 0 ELSE 1 END) DESC,
+                            o.id DESC
+                        LIMIT 1
+                    ) AS override_amount
+                FROM active_rules ar
+                JOIN student_ctx sc ON TRUE
+                WHERE (
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM due_rule_scopes drs
+                        WHERE drs.rule_id = ar.rule_id
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM due_rule_scopes drs
+                        WHERE drs.rule_id = ar.rule_id
+                          AND (drs.department_id IS NULL OR drs.department_id = sc.department_id)
+                          AND (drs.term_number IS NULL OR drs.term_number = sc.term_number)
+                          AND (
+                            drs.section_name IS NULL
+                            OR EXISTS (
+                                SELECT 1
+                                FROM student_sections ss
+                                WHERE ss.student_id = sc.student_id
+                                  AND ss.section_name = drs.section_name
+                            )
+                          )
+                          AND (
+                            drs.batch_year IS NULL
+                            OR drs.batch_year = CAST(NULLIF(SUBSTRING(sc.roll_number FROM '^[0-9]{4}'), '') AS INT)
+                          )
+                    )
+                )
+            ),
+            filtered AS (
+                SELECT
+                    mr.*,
+                    CASE
+                        WHEN mr.term_start IS NOT NULL
+                            THEN (mr.term_start - make_interval(days => GREATEST(mr.issue_offset_days, 0)))::date
+                        ELSE CURRENT_DATE
+                    END AS due_date
+                FROM matched_rules mr
+                WHERE CASE mr.frequency
+                    WHEN 'one_time' THEN NOT EXISTS (
+                        SELECT 1
+                        FROM due_rule_issuance_log l
+                        WHERE l.rule_id = mr.rule_id
+                          AND l.student_id = mr.student_id
+                    )
+                    WHEN 'per_term' THEN NOT EXISTS (
+                        SELECT 1
+                        FROM due_rule_issuance_log l
+                        WHERE l.rule_id = mr.rule_id
+                          AND l.student_id = mr.student_id
+                          AND COALESCE(l.term_id, -1) = COALESCE(mr.term_id, -1)
+                    )
+                    WHEN 'per_year' THEN NOT EXISTS (
+                        SELECT 1
+                        FROM due_rule_issuance_log l
+                        LEFT JOIN terms lt ON lt.id = l.term_id
+                        WHERE l.rule_id = mr.rule_id
+                          AND l.student_id = mr.student_id
+                          AND EXTRACT(YEAR FROM COALESCE(lt.start_date, l.created_at::date)) = EXTRACT(YEAR FROM COALESCE(mr.term_start, CURRENT_DATE))
+                    )
+                    ELSE FALSE
+                END
+            ),
+            inserted_logs AS (
+                INSERT INTO due_rule_issuance_log (
+                    rule_id,
+                    student_id,
+                    term_id,
+                    note
+                )
+                SELECT
+                    f.rule_id,
+                    f.student_id,
+                    f.term_id,
+                    'Auto-issued during student dues fetch'
+                FROM filtered f
+                ON CONFLICT (rule_id, student_id, term_id) DO NOTHING
+                RETURNING rule_id, student_id, term_id
+            ),
+            to_issue AS (
+                SELECT f.*
+                FROM filtered f
+                JOIN inserted_logs l
+                    ON l.rule_id = f.rule_id
+                   AND l.student_id = f.student_id
+                   AND COALESCE(l.term_id, -1) = COALESCE(f.term_id, -1)
+            ),
+            inserted_payments AS (
+                INSERT INTO student_dues_payment (
+                    student_id,
+                    due_id,
+                    amount_paid,
+                    amount_due_override,
+                    status,
+                    deadline,
+                    term_id,
+                    issued_at,
+                    due_date,
+                    required_for_registration
+                )
+                SELECT
+                    ti.student_id,
+                    ti.due_id,
+                    0,
+                    ti.override_amount,
+                    'Overdue',
+                    ti.due_date,
+                    ti.term_id,
+                    CURRENT_TIMESTAMP,
+                    ti.due_date,
+                    ti.required_for_registration
+                FROM to_issue ti
+                RETURNING id
+            )
+            SELECT COUNT(*)::INT AS inserted_count
+            FROM inserted_payments;
+        `;
+
+        await this.db.query_executor(query, [studentId]);
+    }
+
     createDue = (payload) => {
         return this.db.run(
             'create_due',
@@ -268,7 +461,70 @@ class PaymentModel {
                     required_for_registration,
                     waived_at,
                     waive_reason,
+                    allow_term_mismatch = false,
                 } = payload;
+
+                const studentId = Number(student_id);
+                const dueId = Number(due_id);
+                const termId = term_id == null || term_id === '' ? null : Number(term_id);
+
+                if (!Number.isInteger(studentId) || studentId <= 0) {
+                    const error = new Error('Valid student_id is required.');
+                    error.status = 400;
+                    throw error;
+                }
+
+                if (!Number.isInteger(dueId) || dueId <= 0) {
+                    const error = new Error('Valid due_id is required.');
+                    error.status = 400;
+                    throw error;
+                }
+
+                if (termId !== null && (!Number.isInteger(termId) || termId <= 0)) {
+                    const error = new Error('term_id must be a positive integer when provided.');
+                    error.status = 400;
+                    throw error;
+                }
+
+                const studentResult = await this.db.query_executor(
+                    `SELECT user_id, current_term FROM students WHERE user_id = $1 LIMIT 1;`,
+                    [studentId]
+                );
+
+                if (studentResult.rows.length === 0) {
+                    const error = new Error('Student not found.');
+                    error.status = 404;
+                    throw error;
+                }
+
+                const studentCurrentTerm = studentResult.rows[0].current_term == null
+                    ? null
+                    : Number(studentResult.rows[0].current_term);
+
+                if (
+                    termId !== null &&
+                    !Boolean(allow_term_mismatch) &&
+                    studentCurrentTerm !== null &&
+                    studentCurrentTerm !== termId
+                ) {
+                    const error = new Error(
+                        `Selected term_id (${termId}) does not match student's current_term (${studentCurrentTerm}).`
+                    );
+                    error.status = 400;
+                    throw error;
+                }
+
+                const dueResult = await this.db.query_executor(
+                    `SELECT id FROM dues WHERE id = $1 LIMIT 1;`,
+                    [dueId]
+                );
+
+                if (dueResult.rows.length === 0) {
+                    const error = new Error('Due not found.');
+                    error.status = 404;
+                    throw error;
+                }
+
                 const query = `
                     INSERT INTO student_dues_payment (
                         student_id,
@@ -291,8 +547,8 @@ class PaymentModel {
                     RETURNING *;
                 `;
                 const params = [
-                    student_id,
-                    due_id,
+                    studentId,
+                    dueId,
                     amount_paid,
                     amount_due_override,
                     paid_at,
@@ -300,7 +556,7 @@ class PaymentModel {
                     mobile_banking_number,
                     status,
                     deadline,
-                    term_id,
+                    termId,
                     issued_at,
                     due_date,
                     required_for_registration,
@@ -587,6 +843,21 @@ class PaymentModel {
                 const issuedCount = Number(issueResult.rows[0]?.issued_count || 0);
                 const skippedCount = Math.max(matchedCount - issuedCount, 0);
 
+                const scopeResult = await client.query(
+                    `SELECT COUNT(*)::INT AS scope_count FROM due_rule_scopes WHERE rule_id = $1;`,
+                    [rule_id]
+                );
+                const scopeCount = Number(scopeResult.rows[0]?.scope_count || 0);
+
+                let warning = null;
+                if (matchedCount === 0) {
+                    warning = scopeCount > 0
+                        ? 'No students matched this rule scope. Verify scoped department/term/section/batch and student current terms.'
+                        : 'No students matched for issuance. Verify student records and active rule window.';
+                } else if (issuedCount === 0) {
+                    warning = 'All matched students were skipped. This usually means they already have issued dues for this rule/frequency.';
+                }
+
                 await client.query('COMMIT');
 
                 return {
@@ -594,6 +865,7 @@ class PaymentModel {
                     issued_count: issuedCount,
                     skipped_count: skippedCount,
                     matched_count: matchedCount,
+                    warning,
                 };
             } catch (error) {
                 await client.query('ROLLBACK');
@@ -659,6 +931,7 @@ class PaymentModel {
     getStudentDuesWithRequestState = (studentId) => {
         return this.db.run('get_student_dues_with_request_state', async () => {
             await this.ensurePaymentRequestTable();
+            await this.autoIssueEligibleRulesForStudent(studentId);
 
             const query = `
                 SELECT

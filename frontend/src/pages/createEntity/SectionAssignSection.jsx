@@ -15,6 +15,7 @@ const SectionAssignSection = ({
   handleSectionAssign,
   sectionForm,
   setSectionForm,
+  openRollPicker,
   sectionAssigning,
   sectionTerms,
   sectionOptions,
@@ -281,34 +282,54 @@ const SectionAssignSection = ({
 
               <div>
                 <label className="block text-sm font-medium mb-1">Roll Start (full or suffix)</label>
-                <input
-                  required
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="e.g., IPE2400214 or 214"
-                  value={sectionForm.roll_start}
-                  onChange={(event) =>
-                    setSectionForm((prev) => ({ ...prev, roll_start: event.target.value }))
-                  }
-                  className="w-full p-2 border rounded"
-                  disabled={sectionAssigning}
-                />
+                <div className="flex gap-2">
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="e.g., IPE2400214 or 214"
+                    value={sectionForm.roll_start}
+                    onChange={(event) =>
+                      setSectionForm((prev) => ({ ...prev, roll_start: event.target.value }))
+                    }
+                    className="w-full p-2 border rounded"
+                    disabled={sectionAssigning}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => openRollPicker("section_start")}
+                    className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                    disabled={!sectionForm.department_id || !sectionForm.term_id || sectionAssigning}
+                  >
+                    Pick
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">Roll End (full or suffix)</label>
-                <input
-                  required
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="e.g., IPE2400299 or 299"
-                  value={sectionForm.roll_end}
-                  onChange={(event) =>
-                    setSectionForm((prev) => ({ ...prev, roll_end: event.target.value }))
-                  }
-                  className="w-full p-2 border rounded"
-                  disabled={sectionAssigning}
-                />
+                <div className="flex gap-2">
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="e.g., IPE2400299 or 299"
+                    value={sectionForm.roll_end}
+                    onChange={(event) =>
+                      setSectionForm((prev) => ({ ...prev, roll_end: event.target.value }))
+                    }
+                    className="w-full p-2 border rounded"
+                    disabled={sectionAssigning}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => openRollPicker("section_end")}
+                    className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                    disabled={!sectionForm.department_id || !sectionForm.term_id || sectionAssigning}
+                  >
+                    Pick
+                  </button>
+                </div>
               </div>
             </div>
 
