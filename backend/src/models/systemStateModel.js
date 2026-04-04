@@ -534,6 +534,11 @@ class SystemStateModel {
             const targetTerms = await this.getTargetTermsFromEnrolledEnrollments((query, params = []) =>
                 this.db.query_executor(query, params)
             );
+            const targetTermResolution = {
+                source: 'current_term_enrollments',
+                warning: null,
+                targetTerms,
+            };
             if (targetTerms.length === 0) {
                 return {
                     message: 'Session-end impact preview generated.',
@@ -938,6 +943,11 @@ class SystemStateModel {
                 const targetTerms = await this.getTargetTermsFromEnrolledEnrollments((query, params = []) =>
                     client.query(query, params)
                 );
+                const targetTermResolution = {
+                    source: 'current_term_enrollments',
+                    warning: null,
+                    targetTerms,
+                };
                 if (targetTerms.length === 0) {
                     const error = new Error('No terms currently have enrollments with status Enrolled.');
                     error.statusCode = 409;
