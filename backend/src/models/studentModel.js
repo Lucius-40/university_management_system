@@ -1,5 +1,14 @@
 const DB_Connection = require("../database/db.js");
 
+const extractRollSuffix = (value) => {
+    const digits = String(value ?? '').replace(/\D/g, '');
+    if (!digits) return null;
+
+    const suffix = Number(digits.slice(-3));
+    if (!Number.isInteger(suffix)) return null;
+    return suffix;
+};
+
 class StudentModel {
     constructor() {
         this.db = DB_Connection.getInstance();
@@ -53,6 +62,53 @@ class StudentModel {
                 const params = [roll_number];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0];
+            }
+        );
+    }
+
+    getStudentRollOptions = (filters = {}) => {
+        return this.db.run(
+            'get_student_roll_options',
+            async () => {
+                const departmentId = Number(filters.department_id);
+                const termId = Number(filters.term_id);
+                const search = String(filters.search || '').trim();
+                const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 200);
+
+                if (!Number.isInteger(departmentId) || departmentId <= 0) {
+                    const error = new Error('department_id is required.');
+                    error.statusCode = 400;
+                    throw error;
+                }
+
+                if (!Number.isInteger(termId) || termId <= 0) {
+                    const error = new Error('term_id is required.');
+                    error.statusCode = 400;
+                    throw error;
+                }
+
+                const query = `
+                    SELECT
+                        s.user_id AS student_id,
+                        s.roll_number,
+                        u.name AS student_name,
+                        CAST(RIGHT(NULLIF(regexp_replace(s.roll_number, '[^0-9]', '', 'g'), ''), 3) AS INTEGER) AS roll_suffix
+                    FROM students s
+                    JOIN users u ON u.id = s.user_id
+                    JOIN terms t ON t.id = s.current_term
+                    WHERE t.department_id = $1
+                      AND t.id = $2
+                      AND (
+                        $3::text = ''
+                        OR s.roll_number ILIKE '%' || $3 || '%'
+                        OR u.name ILIKE '%' || $3 || '%'
+                      )
+                    ORDER BY s.roll_number ASC
+                    LIMIT $4;
+                `;
+
+                const result = await this.db.query_executor(query, [departmentId, termId, search, limit]);
+                return result.rows;
             }
         );
     }
@@ -425,8 +481,8 @@ class StudentModel {
                 const departmentId = Number(department_id);
                 const termId = Number(term_id);
                 const teacherId = Number(teacher_id);
-                const rollStart = Number(roll_start);
-                const rollEnd = Number(roll_end);
+                const rollStart = extractRollSuffix(roll_start);
+                const rollEnd = extractRollSuffix(roll_end);
 
                 if (!Number.isInteger(departmentId) || departmentId <= 0) {
                     const error = new Error('department_id is required.');
@@ -447,7 +503,7 @@ class StudentModel {
                 }
 
                 if (!Number.isInteger(rollStart) || !Number.isInteger(rollEnd)) {
-                    const error = new Error('roll_start and roll_end must be integers.');
+                    const error = new Error('roll_start and roll_end must contain numeric digits.');
                     error.statusCode = 400;
                     throw error;
                 }
@@ -507,17 +563,24 @@ class StudentModel {
 
                     const studentsResult = await client.query(
                         `
+                            WITH student_rolls AS (
+                                SELECT
+                                    s.user_id AS student_id,
+                                    s.roll_number,
+                                    NULLIF(regexp_replace(s.roll_number, '[^0-9]', '', 'g'), '') AS roll_digits
+                                FROM students s
+                                JOIN terms t ON t.id = s.current_term
+                                WHERE t.department_id = $1
+                                  AND t.id = $2
+                            )
                             SELECT
-                                s.user_id AS student_id,
-                                s.roll_number,
-                                CAST(substring(s.roll_number from '([0-9]+)$') AS INTEGER) AS roll_numeric
-                            FROM students s
-                            JOIN terms t ON t.id = s.current_term
-                            WHERE t.department_id = $1
-                              AND t.id = $2
-                              AND substring(s.roll_number from '([0-9]+)$') IS NOT NULL
-                              AND CAST(substring(s.roll_number from '([0-9]+)$') AS INTEGER) BETWEEN $3 AND $4
-                            ORDER BY roll_numeric ASC, s.user_id ASC
+                                student_id,
+                                roll_number,
+                                CAST(RIGHT(roll_digits, 3) AS INTEGER) AS roll_numeric
+                            FROM student_rolls
+                            WHERE roll_digits IS NOT NULL
+                              AND CAST(RIGHT(roll_digits, 3) AS INTEGER) BETWEEN $3 AND $4
+                            ORDER BY roll_numeric ASC, student_id ASC
                             FOR UPDATE;
                         `,
                         [departmentId, termId, rollStart, rollEnd]
@@ -525,12 +588,17 @@ class StudentModel {
 
                     const invalidRollResult = await client.query(
                         `
+                            WITH student_rolls AS (
+                                SELECT
+                                    NULLIF(regexp_replace(s.roll_number, '[^0-9]', '', 'g'), '') AS roll_digits
+                                FROM students s
+                                JOIN terms t ON t.id = s.current_term
+                                WHERE t.department_id = $1
+                                  AND t.id = $2
+                            )
                             SELECT COUNT(*)::INTEGER AS invalid_roll_count
-                            FROM students s
-                            JOIN terms t ON t.id = s.current_term
-                            WHERE t.department_id = $1
-                              AND t.id = $2
-                              AND substring(s.roll_number from '([0-9]+)$') IS NULL;
+                            FROM student_rolls
+                            WHERE roll_digits IS NULL;
                         `,
                         [departmentId, termId]
                     );

@@ -173,14 +173,31 @@ class CourseModel {
         return this.db.run(
             'delete_course',
             async () => {
-                await this.db.query_executor(
-                    `DELETE FROM course_prerequisites WHERE course_id = $1 OR prereq_id = $1;`,
-                    [id]
-                );
-                const query = `DELETE FROM courses WHERE id = $1 RETURNING *;`;
-                const params = [id];
-                const result = await this.db.query_executor(query, params);
-                return result.rows[0];
+                const client = await this.db.pool.connect();
+                try {
+                    await client.query('BEGIN');
+
+                    await client.query(
+                        `DELETE FROM course_prerequisites WHERE course_id = $1 OR prereq_id = $1;`,
+                        [id]
+                    );
+
+                    const query = `DELETE FROM courses WHERE id = $1 RETURNING *;`;
+                    const params = [id];
+                    const result = await client.query(query, params);
+
+                    await client.query('COMMIT');
+                    return result.rows[0];
+                } catch (error) {
+                    try {
+                        await client.query('ROLLBACK');
+                    } catch (rollbackError) {
+                        console.error('Delete course rollback failed:', rollbackError.message);
+                    }
+                    throw error;
+                } finally {
+                    client.release();
+                }
             }
         );
     }
@@ -203,6 +220,16 @@ class CourseModel {
                 const client = await this.db.pool.connect();
                 try {
                     await client.query('BEGIN');
+
+                    // Keep identity sequence aligned with current table max to avoid stale PK collisions.
+                    await client.query(`LOCK TABLE course_offerings IN SHARE ROW EXCLUSIVE MODE;`);
+                    await client.query(`
+                        SELECT setval(
+                            pg_get_serial_sequence('course_offerings', 'id'),
+                            COALESCE((SELECT MAX(id) FROM course_offerings), 0) + 1,
+                            false
+                        );
+                    `);
 
                     const query = `
                         INSERT INTO course_offerings (

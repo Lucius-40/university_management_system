@@ -1382,6 +1382,17 @@ class StudentController {
         }
     }
 
+    getStudentRollOptions = async (req, res) => {
+        try {
+            const rows = await this.studentModel.getStudentRollOptions(req.query || {});
+            res.status(200).json({ rolls: rows || [] });
+        } catch (error) {
+            console.error('Get student roll options error:', error);
+            const statusCode = Number(error.statusCode) || 500;
+            res.status(statusCode).json({ error: error.message });
+        }
+    }
+
     getAdvisorAssignmentsForInspection = async (req, res) => {
         try {
             const rows = await this.studentModel.getAdvisorAssignmentsForInspection(req.query || {});

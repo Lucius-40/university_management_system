@@ -16,6 +16,7 @@ const AdvisorSection = ({
   handleAdvisorAssign,
   advisorForm,
   setAdvisorForm,
+  openRollPicker,
   advisorAssigning,
   advisorTerms,
   advisorTeachers,
@@ -290,32 +291,54 @@ const AdvisorSection = ({
 
               <div>
                 <label className="block text-sm font-medium mb-1">Roll Start</label>
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  value={advisorForm.roll_start}
-                  onChange={(event) =>
-                    setAdvisorForm((prev) => ({ ...prev, roll_start: event.target.value }))
-                  }
-                  className="w-full p-2 border rounded"
-                  disabled={advisorAssigning}
-                />
+                <div className="flex gap-2">
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="e.g., CSE2305160 or 160"
+                    value={advisorForm.roll_start}
+                    onChange={(event) =>
+                      setAdvisorForm((prev) => ({ ...prev, roll_start: event.target.value }))
+                    }
+                    className="w-full p-2 border rounded"
+                    disabled={advisorAssigning}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => openRollPicker("advisor_start")}
+                    className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                    disabled={!advisorForm.department_id || !advisorForm.term_id || advisorAssigning}
+                  >
+                    Pick
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">Roll End</label>
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  value={advisorForm.roll_end}
-                  onChange={(event) =>
-                    setAdvisorForm((prev) => ({ ...prev, roll_end: event.target.value }))
-                  }
-                  className="w-full p-2 border rounded"
-                  disabled={advisorAssigning}
-                />
+                <div className="flex gap-2">
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="e.g., CSE2305299 or 299"
+                    value={advisorForm.roll_end}
+                    onChange={(event) =>
+                      setAdvisorForm((prev) => ({ ...prev, roll_end: event.target.value }))
+                    }
+                    className="w-full p-2 border rounded"
+                    disabled={advisorAssigning}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => openRollPicker("advisor_end")}
+                    className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                    disabled={!advisorForm.department_id || !advisorForm.term_id || advisorAssigning}
+                  >
+                    Pick
+                  </button>
+                </div>
               </div>
 
               <div className="md:col-span-2">

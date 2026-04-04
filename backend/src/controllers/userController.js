@@ -1,5 +1,6 @@
 const UserModel = require('../models/userModel.js');
 const InitialCredentialsModel = require('../models/initialCredentialsModel.js');
+const DB_Connection = require('../database/db.js');
 const cloudinary = require('../utils/cloudinary.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -8,6 +9,7 @@ class UserController {
     constructor() {
         this.userModel = new UserModel();
         this.initialCredentialsModel = new InitialCredentialsModel();
+        this.db = DB_Connection.getInstance();
     }
 
     isSystemOrAdminRole = (role) => {
@@ -42,48 +44,114 @@ class UserController {
     }
 
     registerUser = async (req, res) => {
+        const client = await this.db.pool.connect();
         try {
             const payload = req.validatedBody || req.body || {};
             const { name, email, password, role, ...otherDetails } = payload;
 
-            const existingUser = await this.userModel.getUserByEmail(email);
-            if (existingUser) {
+            const existingResult = await client.query(
+                `SELECT id FROM users WHERE email = $1 LIMIT 1;`,
+                [email]
+            );
+            if (existingResult.rows.length > 0) {
                 return res.status(409).json({ message: "User with this email already exists." });
             }
 
             const salt = await bcrypt.genSalt(parseInt(process.env.SALT_ROUND));
             const password_hash = await bcrypt.hash(password, salt);
 
-            const newUser = await this.userModel.createUser({
-                name,
-                email,
-                password_hash,
-                role,
-                ...otherDetails
-            });
+            await client.query('BEGIN');
+
+            const normalizedRole = String(role || 'student').toLowerCase();
+
+            const newUserResult = await client.query(
+                `
+                    INSERT INTO users
+                        (name, mobile_number, email, password_hash, role, mobile_banking_number, bank_account_number, present_address, permanent_address, birth_reg_number, birth_date, nid_number, passport_number, emergency_contact_name, emergency_contact_number, emergency_contact_relation)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                    RETURNING *;
+                `,
+                [
+                    name,
+                    otherDetails.mobile_number || null,
+                    email,
+                    password_hash,
+                    normalizedRole,
+                    otherDetails.mobile_banking_number || null,
+                    otherDetails.bank_account_number || null,
+                    otherDetails.present_address || null,
+                    otherDetails.permanent_address || null,
+                    otherDetails.birth_reg_number || null,
+                    otherDetails.birth_date || null,
+                    otherDetails.nid_number || null,
+                    otherDetails.passport_number || null,
+                    otherDetails.emergency_contact_name || null,
+                    otherDetails.emergency_contact_number || null,
+                    otherDetails.emergency_contact_relation || null,
+                ]
+            );
+
+            const newUser = newUserResult.rows[0];
 
             if (!newUser) {
+                await client.query('ROLLBACK');
                 return res.status(500).json({ message: "Failed to create user." });
             }
 
-            try {
-                await this.initialCredentialsModel.createCredential(newUser.id, name, password);
-            } catch (credError) {
-                console.error("Failed to save initial credentials:", credError);
+            await client.query(
+                `
+                    INSERT INTO initial_credentials (user_id, user_name, raw_password)
+                    VALUES ($1, $2, $3)
+                    RETURNING *;
+                `,
+                [newUser.id, name, password]
+            );
+
+            if (normalizedRole === 'student') {
+                await client.query(
+                    `
+                        INSERT INTO students (user_id, roll_number, official_mail, status, current_term)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING *;
+                    `,
+                    [
+                        newUser.id,
+                        otherDetails.roll_number || null,
+                        otherDetails.official_mail || null,
+                        otherDetails.status || 'Active',
+                        otherDetails.current_term || null,
+                    ]
+                );
+            } else if (normalizedRole === 'teacher') {
+                await client.query(
+                    `
+                        INSERT INTO teachers (user_id, department_id, appointment, official_mail)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING *;
+                    `,
+                    [
+                        newUser.id,
+                        otherDetails.department_id || null,
+                        otherDetails.appointment || null,
+                        otherDetails.official_mail || null,
+                    ]
+                );
             }
 
-            try {
-                await this.userModel.createRoleData(role, { user_id: newUser.id, ...otherDetails });
-            } catch (roleError) {
-                console.error("Failed to create role data:", roleError);
-                return res.status(201).json({ message: "User created but failed to initialize role details.", user: newUser });
-            }
+            await client.query('COMMIT');
 
             res.status(201).json({ message: "User registered successfully.", user: newUser });
 
         } catch (error) {
+            try {
+                await client.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('Register user rollback failed:', rollbackError.message);
+            }
             console.error("Registration error:", error);
             res.status(500).json({ error: error.message });
+        } finally {
+            client.release();
         }
     }
 

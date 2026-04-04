@@ -174,6 +174,7 @@ const DuesManagement = ({ initialTab = "dues" }) => {
   };
 
   const handleDueEdit = (due) => {
+    setActiveMode("insertion");
     setEditingDueId(due.id);
     setDueForm({
       name: due.name || "",

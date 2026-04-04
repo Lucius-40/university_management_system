@@ -640,6 +640,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
   };
 
   const handleOfferingEdit = (offering) => {
+    setActiveMode("insertion");
     setIsEditing(true);
     setEditId(offering.id);
     const term = terms.find((item) => Number(item.id) === Number(offering.term_id));
@@ -683,6 +684,7 @@ const CreateInfrastructure = ({ initialTab = "department" }) => {
 
   const handleEdit = (item, event) => {
     event.stopPropagation();
+    setActiveMode("insertion");
     setIsEditing(true);
     setEditId(item.id);
     setMessage({ type: "", text: "" });
