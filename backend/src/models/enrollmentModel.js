@@ -16,6 +16,35 @@ class EnrollmentModel {
                     status, 
                     is_retake 
                 } = payload;
+
+                const passedAttemptCheckQuery = `
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM student_enrollments se
+                        JOIN course_offerings co_existing ON co_existing.id = se.course_offering_id
+                        WHERE se.student_id = $1
+                          AND co_existing.course_id = (
+                              SELECT co_target.course_id
+                              FROM course_offerings co_target
+                              WHERE co_target.id = $2
+                              LIMIT 1
+                          )
+                          AND se.status IN ('Enrolled', 'Archived')
+                          AND se.grade IN ('A+', 'A', 'A-', 'B', 'C', 'D')
+                    ) AS has_passed;
+                `;
+                const passedAttemptCheckResult = await this.db.query_executor(passedAttemptCheckQuery, [
+                    student_id,
+                    course_offering_id,
+                ]);
+
+                if (Boolean(passedAttemptCheckResult.rows[0]?.has_passed)) {
+                    const error = new Error('Cannot register for this course again because the student already passed it in a previous attempt.');
+                    error.statusCode = 400;
+                    error.code = 'COURSE_ALREADY_PASSED';
+                    throw error;
+                }
+
                 const query = `
                     INSERT INTO student_enrollments 
                     (student_id, course_offering_id, credit_when_taking, status, is_retake)
@@ -141,6 +170,25 @@ class EnrollmentModel {
                 const params = [student_id, term_id];
                 const result = await this.db.query_executor(query, params);
                 return result.rows[0].total_credits;
+            }
+        );
+    }
+
+    hasArchivedEnrollmentInTerm = (student_id, term_id) => {
+        return this.db.run(
+            'has_archived_enrollment_in_term',
+            async () => {
+                const query = `
+                    SELECT 1
+                    FROM student_enrollments se
+                    JOIN course_offerings co ON co.id = se.course_offering_id
+                    WHERE se.student_id = $1
+                      AND co.term_id = $2
+                      AND se.status = 'Archived'
+                    LIMIT 1;
+                `;
+                const result = await this.db.query_executor(query, [student_id, term_id]);
+                return result.rows.length > 0;
             }
         );
     }
@@ -482,7 +530,7 @@ class EnrollmentModel {
                                             ON td.id = tt.department_id
                                         WHERE se.student_id = $1
                                             AND co.term_id = $2
-                                            AND se.status IN ('Pending', 'Enrolled', 'Archived')
+                                            AND se.status = 'Enrolled'
                                         ORDER BY c.course_code ASC, se.enrollment_timestamp ASC, se.id ASC;
                                 `;
 
@@ -491,6 +539,28 @@ class EnrollmentModel {
                         }
                 );
         }
+
+    getMostRecentEnrolledTermId = (student_id) => {
+        return this.db.run(
+            'get_most_recent_enrolled_term_id',
+            async () => {
+                const query = `
+                    SELECT co.term_id
+                    FROM student_enrollments se
+                    JOIN course_offerings co ON co.id = se.course_offering_id
+                    JOIN terms t ON t.id = co.term_id
+                    WHERE se.student_id = $1
+                      AND se.status = 'Enrolled'
+                    GROUP BY co.term_id, t.term_number, t.start_date
+                    ORDER BY t.term_number DESC, t.start_date DESC, co.term_id DESC
+                    LIMIT 1;
+                `;
+
+                const result = await this.db.query_executor(query, [student_id]);
+                return result.rows[0]?.term_id || null;
+            }
+        );
+    }
 }
 
 module.exports = EnrollmentModel;
