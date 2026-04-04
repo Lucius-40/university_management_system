@@ -9,10 +9,8 @@ router.get('/assignments', auth.authenticateToken, TeacherSectionController.getT
 
 router.post('/assign', auth.authenticateToken, TeacherSectionController.assignTeacherToSection);
 
-// Get all sections taught by the authenticated teacher in current terms
 router.get('/my-sections', auth.authenticateToken, TeacherSectionController.getTeacherSections);
 
-// Get all students in a specific section taught by the authenticated teacher
 router.get('/sections/:sectionName/department/:departmentId/students', 
     auth.authenticateToken, 
     TeacherSectionController.getStudentsInSection

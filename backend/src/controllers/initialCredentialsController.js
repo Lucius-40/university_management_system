@@ -30,7 +30,6 @@ class InitialCredentialsController {
 
     markAsChanged = async (req, res) => {
         try {
-            // Also ensure only the user themselves can do this
             const userId = req.user.id;
             const credential = await this.initialCredentialsModel.markAsChanged(userId);
             if (!credential) {

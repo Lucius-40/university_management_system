@@ -317,61 +317,61 @@ class StudentModel {
     }
 
         getCurrentAcademicContextByStudentId = (student_id) => {
-                return this.db.run(
-                        'get_current_academic_context_by_student_id',
-                        async () => {
-                                const query = `
-                                        SELECT
-                                                s.user_id AS student_id,
-                                                s.roll_number,
-                                                s.official_mail,
-                                                s.status AS student_status,
-                                                u.name AS student_name,
-                                                u.email AS student_email,
-                                                u.profile_image_url,
-                                                t.id AS term_id,
-                                                t.term_number,
-                                                t.start_date AS term_start_date,
-                                                t.end_date AS term_end_date,
-                                                t.max_credit,
-                                                d.id AS department_id,
-                                                d.code AS department_code,
-                                                d.name AS department_name,
-                                                advisor.teacher_id AS advisor_id,
-                                                advisor.advisor_name,
-                                                advisor.advisor_email,
-                                                advisor.advisor_appointment
-                                        FROM students s
-                                        JOIN users u
-                                            ON u.id = s.user_id
-                                        LEFT JOIN terms t
-                                            ON t.id = s.current_term
-                                        LEFT JOIN departments d
-                                            ON d.id = t.department_id
-                                        LEFT JOIN LATERAL (
-                                                SELECT
-                                                        sah.teacher_id,
-                                                        tu.name AS advisor_name,
-                                                        COALESCE(tt.official_mail, tu.email) AS advisor_email,
-                                                        tt.appointment::text AS advisor_appointment
-                                                FROM student_advisor_history sah
-                                                JOIN teachers tt
-                                                    ON tt.user_id = sah.teacher_id
-                                                JOIN users tu
-                                                    ON tu.id = tt.user_id
-                                                WHERE sah.student_id = s.user_id
-                                                    AND sah.end_date IS NULL
-                                                ORDER BY sah.start_date DESC, sah.id DESC
-                                                LIMIT 1
-                                        ) advisor ON TRUE
-                                        WHERE s.user_id = $1
-                                        LIMIT 1;
-                                `;
+            return this.db.run(
+                    'get_current_academic_context_by_student_id',
+                async () => {
+                    const query = `
+                        SELECT
+                                s.user_id AS student_id,
+                                s.roll_number,
+                                s.official_mail,
+                                s.status AS student_status,
+                                u.name AS student_name,
+                                u.email AS student_email,
+                                u.profile_image_url,
+                                t.id AS term_id,
+                                t.term_number,
+                                t.start_date AS term_start_date,
+                                t.end_date AS term_end_date,
+                                t.max_credit,
+                                d.id AS department_id,
+                                d.code AS department_code,
+                                d.name AS department_name,
+                                advisor.teacher_id AS advisor_id,
+                                advisor.advisor_name,
+                                advisor.advisor_email,
+                                advisor.advisor_appointment
+                        FROM students s
+                        JOIN users u
+                            ON u.id = s.user_id
+                        LEFT JOIN terms t
+                            ON t.id = s.current_term
+                        LEFT JOIN departments d
+                            ON d.id = t.department_id
+                        LEFT JOIN LATERAL (
+                                SELECT
+                                        sah.teacher_id,
+                                        tu.name AS advisor_name,
+                                        COALESCE(tt.official_mail, tu.email) AS advisor_email,
+                                        tt.appointment::text AS advisor_appointment
+                                FROM student_advisor_history sah
+                                JOIN teachers tt
+                                    ON tt.user_id = sah.teacher_id
+                                JOIN users tu
+                                    ON tu.id = tt.user_id
+                                WHERE sah.student_id = s.user_id
+                                    AND sah.end_date IS NULL
+                                ORDER BY sah.start_date DESC, sah.id DESC
+                                LIMIT 1
+                        ) advisor ON TRUE
+                        WHERE s.user_id = $1
+                        LIMIT 1;
+                    `;
 
-                                const result = await this.db.query_executor(query, [student_id]);
-                                return result.rows[0] || null;
-                        }
-                );
+                    const result = await this.db.query_executor(query, [student_id]);
+                    return result.rows[0] || null;
+                }
+            );
         }
 
     getCurrentAdvisorByStudentId = (student_id) => {
@@ -770,53 +770,53 @@ class StudentModel {
     }
 
         getAdvisorAssignmentsForInspection = (filters = {}) => {
-                return this.db.run(
-                        'get_advisor_assignments_for_inspection',
-                        async () => {
-                                const departmentId = filters.department_id ? Number(filters.department_id) : null;
-                                const termId = filters.term_id ? Number(filters.term_id) : null;
-                                const teacherId = filters.teacher_id ? Number(filters.teacher_id) : null;
+            return this.db.run(
+                'get_advisor_assignments_for_inspection',
+                async () => {
+                    const departmentId = filters.department_id ? Number(filters.department_id) : null;
+                    const termId = filters.term_id ? Number(filters.term_id) : null;
+                    const teacherId = filters.teacher_id ? Number(filters.teacher_id) : null;
 
-                                const query = `
-                                        SELECT
-                                                d.id AS department_id,
-                                                d.code AS department_code,
-                                                d.name AS department_name,
-                                                t.id AS term_id,
-                                                t.term_number,
-                                                ah.teacher_id,
-                                                tu.name AS advisor_name,
-                                                tt.appointment AS advisor_appointment,
-                                                s.user_id AS student_id,
-                                                su.name AS student_name,
-                                                s.roll_number,
-                                                ah.start_date,
-                                                ah.change_reason
-                                        FROM student_advisor_history ah
-                                        JOIN students s
-                                            ON s.user_id = ah.student_id
-                                        JOIN users su
-                                            ON su.id = s.user_id
-                                        JOIN terms t
-                                            ON t.id = s.current_term
-                                        JOIN departments d
-                                            ON d.id = t.department_id
-                                        JOIN teachers tt
-                                            ON tt.user_id = ah.teacher_id
-                                        JOIN users tu
-                                            ON tu.id = tt.user_id
-                                        WHERE ah.end_date IS NULL
-                                            AND ($1::int IS NULL OR d.id = $1)
-                                            AND ($2::int IS NULL OR t.id = $2)
-                                            AND ($3::int IS NULL OR ah.teacher_id = $3)
-                                        ORDER BY tu.name, t.term_number, s.roll_number;
-                                `;
+                    const query = `
+                        SELECT
+                                d.id AS department_id,
+                                d.code AS department_code,
+                                d.name AS department_name,
+                                t.id AS term_id,
+                                t.term_number,
+                                ah.teacher_id,
+                                tu.name AS advisor_name,
+                                tt.appointment AS advisor_appointment,
+                                s.user_id AS student_id,
+                                su.name AS student_name,
+                                s.roll_number,
+                                ah.start_date,
+                                ah.change_reason
+                        FROM student_advisor_history ah
+                        JOIN students s
+                            ON s.user_id = ah.student_id
+                        JOIN users su
+                            ON su.id = s.user_id
+                        JOIN terms t
+                            ON t.id = s.current_term
+                        JOIN departments d
+                            ON d.id = t.department_id
+                        JOIN teachers tt
+                            ON tt.user_id = ah.teacher_id
+                        JOIN users tu
+                            ON tu.id = tt.user_id
+                        WHERE ah.end_date IS NULL
+                            AND ($1::int IS NULL OR d.id = $1)
+                            AND ($2::int IS NULL OR t.id = $2)
+                            AND ($3::int IS NULL OR ah.teacher_id = $3)
+                        ORDER BY tu.name, t.term_number, s.roll_number;
+                    `;
 
-                                const params = [departmentId, termId, teacherId];
-                                const result = await this.db.query_executor(query, params);
-                                return result.rows;
-                        }
-                );
+                    const params = [departmentId, termId, teacherId];
+                    const result = await this.db.query_executor(query, params);
+                    return result.rows;
+                }
+            );
         }
 }
 

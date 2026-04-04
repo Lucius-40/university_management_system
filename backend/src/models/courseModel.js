@@ -337,7 +337,6 @@ class CourseModel {
         );
     }
 
-    // Registration helper methods
     getCourseOfferingsByTerm = (term_id, department_id = null, includeInactive = false) => {
         return this.db.run(
             'get_course_offerings_by_term',

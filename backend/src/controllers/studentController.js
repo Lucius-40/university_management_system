@@ -579,7 +579,6 @@ class StudentController {
         }
     }
 
-    // Registration endpoints
     registerForCourses = async (req, res) => {
         const client = await this.db.pool.connect();
         
@@ -588,7 +587,6 @@ class StudentController {
             const { term_number, section_name, course_offering_ids } = req.body;
             const normalizedSectionName = typeof section_name === 'string' ? section_name.trim() : '';
 
-            // Validate input
             if (!term_number || !course_offering_ids || !Array.isArray(course_offering_ids) || course_offering_ids.length === 0) {
                 return res.status(400).json({ 
                     error: "Missing required fields: term_number and course_offering_ids array" 
@@ -597,7 +595,6 @@ class StudentController {
 
             await client.query('BEGIN');
 
-            // 1. Check registration period
             const regPeriodQuery = `SELECT * FROM current_state LIMIT 1;`;
             const regPeriodResult = await client.query(regPeriodQuery);
             
@@ -616,7 +613,6 @@ class StudentController {
                 });
             }
 
-            // 2. Get student and verify status
             const student = await this.studentModel.getStudentByUserId(student_id);
             if (!student) {
                 await client.query('ROLLBACK');
@@ -636,14 +632,12 @@ class StudentController {
                 });
             }
 
-            // 3. Get student's department
             const studentDept = await this.studentModel.getStudentDepartment(student_id);
             if (!studentDept || !studentDept.department_id) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ error: "Student has no department assigned" });
             }
 
-            // 4. Get term by term_number and department
             const termQuery = `
                 SELECT * FROM terms 
                 WHERE term_number = $1 AND department_id = $2
@@ -698,7 +692,6 @@ class StudentController {
                 });
             }
 
-            // 5. Check required blocking dues for the target term
             const blockingDues = await this.studentModel.getBlockingDuesForRegistration(student_id, term.id);
             if (blockingDues.length > 0) {
                 await client.query('ROLLBACK');
@@ -708,14 +701,11 @@ class StudentController {
                 });
             }
 
-            // 6. Get student's completed courses (for prerequisite checking)
             const completedCourses = await this.studentModel.getCompletedCourses(student_id);
             const completedCourseIds = completedCourses.map(c => c.course_id);
 
-            // 7. Get current term credits already enrolled
             const currentCredits = await this.enrollmentModel.getTotalCreditsForTerm(student_id, term.id);
 
-            // 8. Process each course offering
             const enrollments = [];
             const warnings = [];
             let totalNewCredits = 0;
@@ -724,7 +714,6 @@ class StudentController {
             let hasRetakeSelection = false;
 
             for (const offering_id of course_offering_ids) {
-                // Get course offering details
                 const offering = await this.courseModel.getCourseOfferingDetails(offering_id);
                 
                 if (!offering) {
@@ -741,7 +730,6 @@ class StudentController {
                     });
                 }
 
-                // Verify offering is for the selected term
                 if (offering.term_id !== term.id) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({ 
@@ -749,7 +737,6 @@ class StudentController {
                     });
                 }
 
-                // Verify course is from student's department
                 if (offering.department_id !== studentDept.department_id) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({ 
@@ -757,7 +744,6 @@ class StudentController {
                     });
                 }
 
-                // Check for duplicate enrollment
                 const existingEnrollment = await this.enrollmentModel.checkExistingEnrollment(student_id, offering_id);
                 if (existingEnrollment) {
                     await client.query('ROLLBACK');
@@ -766,7 +752,6 @@ class StudentController {
                     });
                 }
 
-                // Check prerequisites
                 const prerequisites = await this.courseModel.getCoursePrerequisites(offering.course_id);
                 const missingPrereqs = prerequisites.filter(prereq => 
                     !completedCourseIds.includes(prereq.prereq_id)
@@ -783,14 +768,12 @@ class StudentController {
                     });
                 }
 
-                // Check if this is a retake and validate
                 const attemptSummary = await this.enrollmentModel.getCourseAttemptSummary(student_id, offering.course_id);
                 const isRetake = attemptSummary.attempt_count > 0;
                 if (isRetake) {
                     hasRetakeSelection = true;
                 }
                 
-                // Block enrollment if student has ever passed this course in any term.
                 if (attemptSummary.has_passed) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({ 
@@ -798,7 +781,6 @@ class StudentController {
                     });
                 }
 
-                // Check capacity (warning only)
                 const enrollmentCount = await this.courseModel.getCourseOfferingEnrollmentCount(offering_id);
                 if (offering.max_capacity && enrollmentCount >= offering.max_capacity) {
                     warnings.push({
@@ -813,7 +795,6 @@ class StudentController {
                     selectedOptionalCredits += parseFloat(offering.credit_hours);
                 }
 
-                // Prepare enrollment data
                 enrollments.push({
                     student_id,
                     course_offering_id: offering_id,
@@ -823,7 +804,6 @@ class StudentController {
                 });
             }
 
-            // 9. Check credit limit from term
             const termCreditLimit = Number(term.max_credit || 23);
             const totalCredits = parseFloat(currentCredits) + totalNewCredits;
             if (totalCredits > termCreditLimit) {
@@ -845,7 +825,6 @@ class StudentController {
                 }
             }
 
-            // 10. Resolve section assignment mode.
             let resolvedSectionName = null;
             let sectionAssignment = null;
 
@@ -880,14 +859,12 @@ class StudentController {
                 sectionAssignment = await this.sectionModel.assignStudentToSection(student_id, resolvedSectionName, 'n');
             }
 
-            // 11. Create all enrollments
             const createdEnrollments = [];
             for (const enrollment of enrollments) {
                 const created = await this.enrollmentModel.createEnrollment(enrollment);
                 createdEnrollments.push(created);
             }
 
-            // 12. Get advisor info
             const advisor = await this.studentModel.getCurrentAdvisor(student_id);
 
             await client.query('COMMIT');
@@ -937,13 +914,11 @@ class StudentController {
                 return res.status(400).json({ error: "term_number query parameter required" });
             }
 
-            // Get student's department
             const studentDept = await this.studentModel.getStudentDepartment(student_id);
             if (!studentDept || !studentDept.department_id) {
                 return res.status(400).json({ error: "Student has no department assigned" });
             }
 
-            // Get term
             const termQuery = `
                 SELECT * FROM terms 
                 WHERE term_number = $1 AND department_id = $2
@@ -960,18 +935,14 @@ class StudentController {
 
             const term = termResult.rows[0];
 
-            // Get course offerings for this term and department
             const offerings = await this.courseModel.getCourseOfferingsByTerm(term.id, studentDept.department_id);
 
-            // Get student's completed courses
             const completedCourses = await this.studentModel.getCompletedCourses(student_id);
             const completedCourseIds = completedCourses.map(c => c.course_id);
 
-            // Get active enrollments in this term (Pending/Enrolled only)
             const currentEnrollments = await this.enrollmentModel.getActiveEnrollmentsByStudentAndTerm(student_id, term.id);
             const enrolledOfferingIds = currentEnrollments.map(e => e.course_offering_id);
 
-            // Enrich offerings with additional info
             const enrichedOfferings = await Promise.all(offerings.map(async (offering) => {
                 const prerequisites = await this.courseModel.getCoursePrerequisites(offering.course_id);
                 const enrollmentCount = await this.courseModel.getCourseOfferingEnrollmentCount(offering.id);
@@ -983,7 +954,6 @@ class StudentController {
 
                 const isAlreadyEnrolled = enrolledOfferingIds.includes(offering.id);
 
-                // Check if student has ever passed this course before (grades D or better).
                 const hasPassed = attemptSummary.has_passed;
                 
                 // Student can enroll if:
@@ -1035,7 +1005,6 @@ class StudentController {
                 return res.status(400).json({ error: "term_number query parameter required" });
             }
 
-            // Check registration period
             const regPeriodQuery = `SELECT * FROM current_state LIMIT 1;`;
             const regPeriodResult = await this.db.query_executor(regPeriodQuery);
             
@@ -1049,16 +1018,13 @@ class StudentController {
                 registrationPeriod = { reg_start, reg_end };
             }
 
-            // Get student
             const student = await this.studentModel.getStudentByUserId(student_id);
             if (!student) {
                 return res.status(404).json({ error: "Student not found" });
             }
 
-            // Get student's department
             const studentDept = await this.studentModel.getStudentDepartment(student_id);
 
-            // Get term
             let term = null;
             if (studentDept && studentDept.department_id) {
                 const termQuery = `
@@ -1102,21 +1068,17 @@ class StudentController {
                 }
             }
 
-            // Check dues (required dues for this term only)
             const blockingDues = term
                 ? await this.studentModel.getBlockingDuesForRegistration(student_id, term.id)
                 : await this.studentModel.getBlockingDuesForRegistration(student_id, null);
 
-            // Get advisor
             const advisor = await this.studentModel.getCurrentAdvisor(student_id);
 
-            // Get sections for term
             let sections = [];
             if (term) {
                 sections = await this.sectionModel.getSectionsByTermId(term.id);
             }
 
-            // Get current credits
             let currentCredits = 0;
             if (term) {
                 currentCredits = await this.enrollmentModel.getTotalCreditsForTerm(student_id, term.id);

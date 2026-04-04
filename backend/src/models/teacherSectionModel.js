@@ -5,11 +5,6 @@ class TeacherSectionModel {
         this.db = DB_Connection.getInstance();
     }
 
-    /**
-     * Get all sections taught by a teacher in current terms
-     * @param {number} teacherId - The teacher's user_id
-     * @returns {Promise<Array>} List of sections with department and course info
-     */
     getTeacherSections = (teacherId) => {
         return this.db.run(
             'get_teacher_sections',
@@ -22,13 +17,6 @@ class TeacherSectionModel {
         );
     }
 
-    /**
-     * Get all students in a specific section taught by a teacher
-     * @param {number} teacherId - The teacher's user_id
-     * @param {string} sectionName - The section name
-     * @param {number} departmentId - The department ID
-     * @returns {Promise<Array>} List of enrolled students in the section
-     */
     getStudentsInSection = (teacherId, sectionName, departmentId) => {
         return this.db.run(
             'get_students_in_teacher_section',
@@ -212,54 +200,54 @@ class TeacherSectionModel {
     }
 
         getTeachingAssignments = (filters = {}) => {
-                return this.db.run(
-                        'get_teaching_assignments',
-                        async () => {
-                                const departmentId = filters.department_id ? Number(filters.department_id) : null;
-                                const termId = filters.term_id ? Number(filters.term_id) : null;
-                                const courseOfferingId = filters.course_offering_id ? Number(filters.course_offering_id) : null;
-                                const teacherId = filters.teacher_id ? Number(filters.teacher_id) : null;
+            return this.db.run(
+                'get_teaching_assignments',
+                async () => {
+                    const departmentId = filters.department_id ? Number(filters.department_id) : null;
+                    const termId = filters.term_id ? Number(filters.term_id) : null;
+                    const courseOfferingId = filters.course_offering_id ? Number(filters.course_offering_id) : null;
+                    const teacherId = filters.teacher_id ? Number(filters.teacher_id) : null;
 
-                                const query = `
-                                        SELECT
-                                                t.course_offering_id,
-                                                t.section_name,
-                                                t.teacher_id,
-                                                tr.id AS term_id,
-                                                tr.term_number,
-                                                d.id AS department_id,
-                                                d.code AS department_code,
-                                                d.name AS department_name,
-                                                c.id AS course_id,
-                                                c.course_code,
-                                                c.name AS course_name,
-                                                u.name AS teacher_name,
-                                                te.appointment AS teacher_appointment
-                                        FROM teaches t
-                                        JOIN course_offerings co
-                                            ON co.id = t.course_offering_id
-                                        JOIN terms tr
-                                            ON tr.id = co.term_id
-                                        JOIN courses c
-                                            ON c.id = co.course_id
-                                        JOIN departments d
-                                            ON d.id = tr.department_id
-                                        JOIN teachers te
-                                            ON te.user_id = t.teacher_id
-                                        JOIN users u
-                                            ON u.id = te.user_id
-                                        WHERE ($1::int IS NULL OR d.id = $1)
-                                            AND ($2::int IS NULL OR tr.id = $2)
-                                            AND ($3::int IS NULL OR t.course_offering_id = $3)
-                                            AND ($4::int IS NULL OR t.teacher_id = $4)
-                                        ORDER BY d.code, tr.term_number, c.course_code, t.section_name, u.name;
-                                `;
+                    const query = `
+                        SELECT
+                                t.course_offering_id,
+                                t.section_name,
+                                t.teacher_id,
+                                tr.id AS term_id,
+                                tr.term_number,
+                                d.id AS department_id,
+                                d.code AS department_code,
+                                d.name AS department_name,
+                                c.id AS course_id,
+                                c.course_code,
+                                c.name AS course_name,
+                                u.name AS teacher_name,
+                                te.appointment AS teacher_appointment
+                        FROM teaches t
+                        JOIN course_offerings co
+                            ON co.id = t.course_offering_id
+                        JOIN terms tr
+                            ON tr.id = co.term_id
+                        JOIN courses c
+                            ON c.id = co.course_id
+                        JOIN departments d
+                            ON d.id = tr.department_id
+                        JOIN teachers te
+                            ON te.user_id = t.teacher_id
+                        JOIN users u
+                            ON u.id = te.user_id
+                        WHERE ($1::int IS NULL OR d.id = $1)
+                            AND ($2::int IS NULL OR tr.id = $2)
+                            AND ($3::int IS NULL OR t.course_offering_id = $3)
+                            AND ($4::int IS NULL OR t.teacher_id = $4)
+                        ORDER BY d.code, tr.term_number, c.course_code, t.section_name, u.name;
+                `;
 
-                                const params = [departmentId, termId, courseOfferingId, teacherId];
-                                const result = await this.db.query_executor(query, params);
-                                return result.rows;
-                        }
-                );
+                    const params = [departmentId, termId, courseOfferingId, teacherId];
+                    const result = await this.db.query_executor(query, params);
+                    return result.rows;
+                }
+            );
         }
 }
 
