@@ -558,8 +558,50 @@ class StudentModel {
                         throw error;
                     }
 
-                    const normalizedStartDate = String(start_date || '').trim();
-                    const effectiveStartDate = normalizedStartDate || String(term.start_date).slice(0, 10);
+                    const toDateOnly = (value) => {
+                        if (!value) return null;
+
+                        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                            return value.toISOString().slice(0, 10);
+                        }
+
+                        const raw = String(value).trim();
+                        if (!raw) return null;
+
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+                            return raw;
+                        }
+
+                        const parsed = new Date(raw);
+                        if (!Number.isNaN(parsed.getTime())) {
+                            return parsed.toISOString().slice(0, 10);
+                        }
+
+                        return null;
+                    };
+
+                    const addDays = (dateText, days) => {
+                        const normalizedDate = toDateOnly(dateText);
+                        if (!normalizedDate) {
+                            const error = new Error(`Invalid advisor date value: ${String(dateText)}`);
+                            error.statusCode = 400;
+                            throw error;
+                        }
+
+                        const date = new Date(`${normalizedDate}T00:00:00Z`);
+                        date.setUTCDate(date.getUTCDate() + days);
+                        return date.toISOString().slice(0, 10);
+                    };
+
+                    const normalizedStartDate = toDateOnly(start_date);
+                    const termStartDate = toDateOnly(term.start_date);
+                    const effectiveStartDate = normalizedStartDate || termStartDate;
+
+                    if (!effectiveStartDate) {
+                        const error = new Error('Could not resolve a valid advisor start date.');
+                        error.statusCode = 400;
+                        throw error;
+                    }
 
                     const studentsResult = await client.query(
                         `
@@ -612,6 +654,7 @@ class StudentModel {
 
                     let assignedCount = 0;
                     let skippedSameAdvisorCount = 0;
+                    let autoAdjustedStartDateCount = 0;
                     const affectedStudentIds = [];
 
                     for (const row of matchedStudents) {
@@ -636,14 +679,18 @@ class StudentModel {
                             continue;
                         }
 
+                        let assignmentStartDate = effectiveStartDate;
+
                         if (currentAdvisor) {
-                            const currentStartDate = String(currentAdvisor.start_date).slice(0, 10);
-                            if (effectiveStartDate <= currentStartDate) {
-                                const error = new Error(
-                                    `Cannot reassign student ${studentId}: start_date must be after existing advisor start_date (${currentStartDate}).`
-                                );
-                                error.statusCode = 409;
+                            const currentStartDate = toDateOnly(currentAdvisor.start_date);
+                            if (!currentStartDate) {
+                                const error = new Error(`Invalid existing advisor start_date for student ${studentId}.`);
+                                error.statusCode = 400;
                                 throw error;
+                            }
+                            if (assignmentStartDate <= currentStartDate) {
+                                assignmentStartDate = addDays(currentStartDate, 1);
+                                autoAdjustedStartDateCount += 1;
                             }
 
                             await client.query(
@@ -652,7 +699,7 @@ class StudentModel {
                                     SET end_date = ($2::date - INTERVAL '1 day')::date
                                     WHERE id = $1;
                                 `,
-                                [currentAdvisor.id, effectiveStartDate]
+                                [currentAdvisor.id, assignmentStartDate]
                             );
                         }
 
@@ -667,7 +714,7 @@ class StudentModel {
                                   )
                                 LIMIT 1;
                             `,
-                            [studentId, effectiveStartDate, null]
+                            [studentId, assignmentStartDate, null]
                         );
 
                         if (overlapResult.rows.length > 0) {
@@ -689,7 +736,7 @@ class StudentModel {
                                 )
                                 VALUES ($1, $2, $3, NULL, $4);
                             `,
-                            [studentId, teacherId, effectiveStartDate, String(change_reason || '').trim() || null]
+                            [studentId, teacherId, assignmentStartDate, String(change_reason || '').trim() || null]
                         );
 
                         assignedCount += 1;
@@ -708,6 +755,7 @@ class StudentModel {
                         matched_students: matchedStudents.length,
                         assigned_count: assignedCount,
                         skipped_same_advisor_count: skippedSameAdvisorCount,
+                        auto_adjusted_start_date_count: autoAdjustedStartDateCount,
                         invalid_roll_format_count: Number(invalidRollResult.rows[0]?.invalid_roll_count || 0),
                         affected_student_ids: affectedStudentIds,
                     };

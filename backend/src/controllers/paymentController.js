@@ -90,7 +90,7 @@ class PaymentController {
             res.status(201).json(payment);
         } catch (error) {
              console.error("Create Payment error:", error);
-            res.status(500).json({ error: error.message });
+            res.status(error.status || 500).json({ error: error.message });
         }
     }
 

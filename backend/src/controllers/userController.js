@@ -107,7 +107,17 @@ class UserController {
                 [newUser.id, name, password]
             );
 
-            if (normalizedRole === 'student') {
+            const hasStudentProfilePayload =
+                Boolean(String(otherDetails.roll_number || '').trim()) &&
+                Boolean(String(otherDetails.official_mail || '').trim()) &&
+                Number.isInteger(Number(otherDetails.current_term));
+
+            const hasTeacherProfilePayload =
+                Number.isInteger(Number(otherDetails.department_id)) &&
+                Boolean(String(otherDetails.appointment || '').trim()) &&
+                Boolean(String(otherDetails.official_mail || '').trim());
+
+            if (normalizedRole === 'student' && hasStudentProfilePayload) {
                 await client.query(
                     `
                         INSERT INTO students (user_id, roll_number, official_mail, status, current_term)
@@ -122,7 +132,7 @@ class UserController {
                         otherDetails.current_term || null,
                     ]
                 );
-            } else if (normalizedRole === 'teacher') {
+            } else if (normalizedRole === 'teacher' && hasTeacherProfilePayload) {
                 await client.query(
                     `
                         INSERT INTO teachers (user_id, department_id, appointment, official_mail)

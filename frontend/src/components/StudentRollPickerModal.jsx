@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 
 const StudentRollPickerModal = ({
@@ -13,11 +13,59 @@ const StudentRollPickerModal = ({
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const canQuery = useMemo(
     () => Number.isInteger(Number(departmentId)) && Number(departmentId) > 0 && Number.isInteger(Number(termId)) && Number(termId) > 0,
     [departmentId, termId]
   );
+
+  const groupedRows = useMemo(() => {
+    const sortedRows = [...rows].sort((left, right) =>
+      String(left.roll_number || "").localeCompare(String(right.roll_number || ""))
+    );
+
+    const groups = new Map();
+    sortedRows.forEach((row) => {
+      const roll = String(row.roll_number || "").trim();
+      const batchKey = roll.slice(0, 5) || "UNKNOWN";
+
+      if (!groups.has(batchKey)) {
+        groups.set(batchKey, []);
+      }
+      groups.get(batchKey).push(row);
+    });
+
+    return [...groups.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0]))
+      .map(([batch, items]) => ({ batch, items }));
+  }, [rows]);
+
+  const cacheKey = useMemo(() => {
+    if (!canQuery) return "";
+    return `student-roll-options:${Number(departmentId)}:${Number(termId)}`;
+  }, [canQuery, departmentId, termId]);
+
+  const readCache = () => {
+    if (!cacheKey) return [];
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const writeCache = (items) => {
+    if (!cacheKey) return;
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(Array.isArray(items) ? items : []));
+    } catch {
+      
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -31,6 +79,12 @@ const StudentRollPickerModal = ({
       setRows([]);
       setError("Select department and term first.");
       return;
+    }
+
+    const cachedRows = readCache();
+    if (!search && cachedRows.length > 0) {
+      setRows(cachedRows);
+      setError("");
     }
 
     let cancelled = false;
@@ -49,11 +103,47 @@ const StudentRollPickerModal = ({
         });
 
         if (cancelled) return;
-        setRows(response.data?.rolls || []);
+        const serverRows = Array.isArray(response.data?.rolls) ? response.data.rolls : [];
+
+        if (!search) {
+          writeCache(serverRows);
+        }
+
+        if (serverRows.length > 0) {
+          setRows(serverRows);
+          setError("");
+          return;
+        }
+
+        if (!search && cachedRows.length > 0) {
+          setRows(cachedRows);
+          setError("No latest rows from server. Showing cached students.");
+          return;
+        }
+
+        if (search && cachedRows.length > 0) {
+          const q = search.toLowerCase().trim();
+          const filteredCache = cachedRows.filter(
+            (row) =>
+              String(row.roll_number || "").toLowerCase().includes(q) ||
+              String(row.student_name || "").toLowerCase().includes(q)
+          );
+          setRows(filteredCache);
+          setError("");
+          return;
+        }
+
+        setRows([]);
+        setError("");
       } catch (requestError) {
         if (cancelled) return;
-        setRows([]);
-        setError(requestError.response?.data?.error || "Failed to load rolls.");
+        if (cachedRows.length > 0) {
+          setRows(cachedRows);
+          setError("Could not reach server. Showing cached students.");
+        } else {
+          setRows([]);
+          setError(requestError.response?.data?.error || "Failed to load rolls.");
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -65,7 +155,7 @@ const StudentRollPickerModal = ({
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [isOpen, canQuery, departmentId, termId, search]);
+  }, [isOpen, canQuery, departmentId, termId, search, cacheKey, refreshTick]);
 
   if (!isOpen) return null;
 
@@ -84,13 +174,26 @@ const StudentRollPickerModal = ({
         </div>
 
         <div className="p-4 space-y-3">
-          <input
-            type="text"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by roll or student name"
-            className="w-full rounded border p-2"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by roll or student name"
+              className="w-full rounded border p-2"
+            />
+            <button
+              type="button"
+              className="rounded border px-3 py-2 text-sm hover:bg-gray-100"
+              onClick={() => setRefreshTick((previous) => previous + 1)}
+            >
+              Refresh DB
+            </button>
+          </div>
+
+          <p className="text-xs text-gray-500">
+            {rows.length} student{rows.length === 1 ? "" : "s"} available for selection.
+          </p>
 
           {loading ? (
             <p className="text-sm text-gray-500">Loading rolls...</p>
@@ -110,21 +213,30 @@ const StudentRollPickerModal = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.student_id} className="border-t">
-                      <td className="px-3 py-2 font-medium text-gray-900">{row.roll_number}</td>
-                      <td className="px-3 py-2 text-gray-700">{row.student_name || "-"}</td>
-                      <td className="px-3 py-2 text-gray-700">{row.roll_suffix ?? "-"}</td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          className="rounded bg-slate-800 px-3 py-1 text-white hover:bg-slate-900"
-                          onClick={() => onSelect(row.roll_number)}
-                        >
-                          Select
-                        </button>
-                      </td>
-                    </tr>
+                  {groupedRows.map((group) => (
+                    <Fragment key={`batch-${group.batch}`}>
+                      <tr className="border-t bg-slate-100">
+                        <td className="px-3 py-2 font-semibold text-slate-900" colSpan={4}>
+                          Batch {group.batch} ({group.items.length})
+                        </td>
+                      </tr>
+                      {group.items.map((row) => (
+                        <tr key={row.student_id} className="border-t">
+                          <td className="px-3 py-2 font-medium text-gray-900">{row.roll_number}</td>
+                          <td className="px-3 py-2 text-gray-700">{row.student_name || "-"}</td>
+                          <td className="px-3 py-2 text-gray-700">{row.roll_suffix ?? "-"}</td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              className="rounded bg-slate-800 px-3 py-1 text-white hover:bg-slate-900"
+                              onClick={() => onSelect(row.roll_number)}
+                            >
+                              Select
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

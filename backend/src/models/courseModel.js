@@ -221,7 +221,6 @@ class CourseModel {
                 try {
                     await client.query('BEGIN');
 
-                    // Keep identity sequence aligned with current table max to avoid stale PK collisions.
                     await client.query(`LOCK TABLE course_offerings IN SHARE ROW EXCLUSIVE MODE;`);
                     await client.query(`
                         SELECT setval(
